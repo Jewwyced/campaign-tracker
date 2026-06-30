@@ -7,7 +7,12 @@ has many Sounds (Original, Sped Up, Remix, etc), each Sound has many Posts.
 """
 
 from flask import Blueprint, jsonify, request, render_template_string
-import ingestion
+from ingestion import (
+    discover_sounds,
+    create_sound,
+    ingest_sound,
+    parse_sound_info,
+)
 from db import db
 
 songs_bp = Blueprint("songs", __name__)

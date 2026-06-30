@@ -16,7 +16,7 @@ campaigns_bp = Blueprint("campaigns", __name__)
 
 parse_tiktok_url = ingestion.parse_tiktok_url
 get_sound_id_from_post = ingestion.get_sound_id_from_post
-fetch_sound_info = ingestion.fetch_sound_info
+fetch_sound_info = ingestion.parse_sound_info
 
 
 def fetch_single_post(post_id, username=None):
