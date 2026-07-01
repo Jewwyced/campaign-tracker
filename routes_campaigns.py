@@ -14,17 +14,13 @@ from db import db
 
 campaigns_bp = Blueprint("campaigns", __name__)
 
-parse_tiktok_url = ingestion.parse_tiktok_url
-get_sound_id_from_post = ingestion.get_sound_id_from_post
-fetch_sound_info = ingestion.parse_sound_info
-
 
 def fetch_single_post(post_id, username=None):
-    return ingestion.ingest_single_post(db, post_id, username)
+    return ingestion.ingest_post(db, post_id, username)
 
 
 def pull_sound_into_campaign(campaign_id, sound_id, max_results=30, sound_db_id=None):
-    return ingestion.ingest_campaign_attached_sound(db, campaign_id, sound_id, max_results=max_results, sound_db_id=sound_db_id)
+    return ingestion.ingest_campaign_sound(db, campaign_id, sound_id, max_results=max_results, sound_db_id=sound_db_id)
 
 
 @campaigns_bp.route("/api/campaigns", methods=["GET", "POST"])
@@ -87,7 +83,7 @@ def add_post_to_campaign(campaign_id):
     if data is None:
         return jsonify({"error": "Request body must be valid JSON with Content-Type: application/json"}), 400
     url = str(data.get("url", "")).strip()
-    username, post_id = parse_tiktok_url(url)
+    username, post_id = ingestion.parse_video_url(url)
     if not username or not post_id:
         return jsonify({"error": "Couldn't parse that as a TikTok video URL"}), 400
 
@@ -195,22 +191,20 @@ def attach_sound_to_campaign(campaign_id):
         if m:
             sound_id = m.group(1)
         else:
-            username, post_id = parse_tiktok_url(query)
+            username, post_id = ingestion.parse_video_url(query)
             if not post_id:
                 return jsonify({"error": "Couldn't parse that as a TikTok link"}), 400
-            sound_id, sound_title = get_sound_id_from_post(post_id)
+            sound_id, sound_title = ingestion.get_sound_id_from_post(post_id)
             if not sound_id:
                 return jsonify({"error": "Couldn't find a sound on that video"}), 400
             sound_id = str(sound_id)
     else:
         sound_id = query
 
-    info = fetch_sound_info(sound_id)
+    info = ingestion.get_sound_info(sound_id)
     if not info:
         return jsonify({"error": f"Couldn't find a sound with ID {sound_id}"}), 400
-    music_info = info.get("musicInfo", info)
-    music = music_info.get("music", {})
-    title = music.get("title", sound_title or "Unknown sound")
+    title = info.get("title", sound_title or "Unknown sound")
 
     with db() as conn:
         with conn.cursor() as c:
@@ -235,3 +229,24 @@ def detach_sound_from_campaign(campaign_id):
 @campaigns_bp.route("/campaigns")
 def campaigns_page():
     return render_template_string(open("index.html").read())
+
+
+@campaigns_bp.route("/api/campaigns/<int:campaign_id>/songs")
+def campaign_songs(campaign_id):
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                SELECT s.*,
+                    COUNT(DISTINCT p.post_id) as post_count,
+                    COALESCE(SUM(p.views), 0) as total_views
+                FROM campaigns c
+                JOIN songs s ON s.id = c.song_id
+                LEFT JOIN sounds snd ON snd.song_id = s.id
+                LEFT JOIN posts p ON p.sound_db_id = snd.id
+                WHERE c.id = %s
+                GROUP BY s.id
+            """, (campaign_id,))
+            songs = [dict(r) for r in c.fetchall()]
+            for song in songs:
+                song["created_at"] = str(song["created_at"])
+    return jsonify(songs)
