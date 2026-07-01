@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Sound lookup</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface-1: #f7f7f8;
+    --surface-2: #f0f0f2;
+    --border: #e4e4e7;
+    --text-primary: #18181b;
+    --text-secondary: #52525b;
+    --text-muted: #a1a1aa;
+    --accent: #6366f1;
+    --accent-dim: #4f46e5;
+    --success-bg: #ecfdf5;
+    --success-text: #059669;
+    --warning-bg: #fffbeb;
+    --warning-text: #b45309;
+    --neutral-bg: #f0f0f2;
+    --neutral-text: #71717a;
+    --danger: #dc2626;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  header a {
+    font-size: 13px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    margin-right: 16px;
+  }
+  header a.current { color: var(--text-primary); font-weight: 500; }
+  header a:hover { color: var(--text-primary); }
+  main {
+    padding: 28px 32px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .title { font-size: 18px; font-weight: 500; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; }
+
+  .search-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  input[type=text] {
+    flex: 1;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-primary);
+  }
+  input[type=text]:focus { outline: none; border-color: var(--accent); }
+  button {
+    font-size: 13px;
+    font-family: inherit;
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 9px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:hover { background: var(--accent-dim); }
+  button:disabled { background: var(--text-muted); cursor: default; }
+  #search-error { font-size: 13px; color: var(--danger); margin-bottom: 16px; }
+  #search-hint { font-size: 12px; color: var(--text-muted); margin-bottom: 20px; }
+
+  .sound-header {
+    display: none;
+    margin-bottom: 20px;
+  }
+  .sound-header .name { font-size: 18px; font-weight: 500; }
+  .sound-header .meta { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+  .stat-row {
+    display: none;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .stat-box {
+    background: var(--surface-1);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .stat-box .label { font-size: 12px; color: var(--text-muted); }
+  .stat-box .value { font-size: 20px; font-weight: 500; margin-top: 4px; }
+
+  .table-wrap {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 1.4fr 2.2fr 0.8fr 0.8fr 0.8fr 0.5fr;
+    padding: 12px 16px;
+    align-items: center;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .row.header-row {
+    border-top: none;
+    background: var(--surface-1);
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 10px 16px;
+  }
+  .creator { color: var(--text-secondary); }
+  .caption {
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .row-actions { text-align: right; }
+  .row-actions a {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 13px;
+  }
+  .row-actions a:hover { color: var(--text-primary); }
+
+  .empty {
+    padding: 48px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+  #status { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; min-height: 16px; }
+  .sound-list {
+    display: none;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 28px;
+  }
+  .sound-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .sound-list-item:first-child { border-top: none; }
+  .sound-list-item:hover { background: var(--surface-1); }
+  .sound-list-item .name { font-size: 14px; font-weight: 500; }
+  .sound-list-item .author { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .section-divider {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    margin: 28px 0 12px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <a href="/">Dashboard</a>
+    <a href="/campaigns">Campaigns</a>
+    <a href="/songs">Songs</a>
+    <a href="/artists">Artists</a>
+    <a href="/sounds" class="current">Sound lookup</a>
+  </div>
+</header>
+
+<main>
+  <div class="title">Sound lookup</div>
+  <div class="subtitle">Search a song to find its sounds, or paste a link directly.</div>
+
+  <div class="search-row">
+    <input type="text" id="song-search-input" placeholder="Search a song name, e.g. Drive by Incubus">
+    <button onclick="searchSongs()" id="song-search-btn">Search</button>
+  </div>
+  <div id="song-search-error"></div>
+  <div id="song-status"></div>
+
+  <div class="sound-list" id="sound-list"></div>
+
+  <div class="section-divider">Or look up a specific sound directly</div>
+
+  <div class="search-row">
+    <input type="text" id="search-input" placeholder="Paste a TikTok video link, or enter a sound ID">
+    <button onclick="search()" id="search-btn">Search</button>
+  </div>
+  <div id="search-error"></div>
+  <div id="search-hint">Tip: paste any video that uses the sound you're looking for — we'll find the sound from it.</div>
+
+  <div id="status"></div>
+
+  <div class="sound-header" id="sound-header">
+    <div class="name" id="sound-name"></div>
+    <div class="meta" id="sound-meta"></div>
+  </div>
+
+  <div class="stat-row" id="stat-row">
+    <div class="stat-box"><div class="label">Videos shown</div><div class="value" id="stat-shown">-</div></div>
+    <div class="stat-box"><div class="label">Total videos (TikTok)</div><div class="value" id="stat-total">-</div></div>
+    <div class="stat-box"><div class="label">Total views (shown)</div><div class="value" id="stat-views">-</div></div>
+  </div>
+
+  <div class="table-wrap" id="table-wrap" style="display:none;">
+    <div class="row header-row">
+      <div>Creator</div>
+      <div>Caption</div>
+      <div>Views</div>
+      <div>Likes</div>
+      <div>Comments</div>
+      <div></div>
+    </div>
+    <div id="post-rows"></div>
+  </div>
+</main>
+
+<script>
+function fmt(n) {
+  if (n == null || isNaN(n)) return '-';
+  if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+  return String(n);
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+
+async function searchSongs() {
+  const input = document.getElementById('song-search-input');
+  const btn = document.getElementById('song-search-btn');
+  const errEl = document.getElementById('song-search-error');
+  const statusEl = document.getElementById('song-status');
+  const query = input.value.trim();
+  if (!query) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Searching...';
+  errEl.textContent = '';
+  statusEl.textContent = 'Searching TikTok...';
+  document.getElementById('sound-list').style.display = 'none';
+
+  try {
+    const res = await fetch('/api/sound_search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Something went wrong.';
+      statusEl.textContent = '';
+      return;
+    }
+    renderSoundList(data.sounds);
+    statusEl.textContent = data.sounds.length === 0
+      ? 'No sounds found for that search.'
+      : `${data.sounds.length} distinct sound${data.sounds.length === 1 ? '' : 's'} found.`;
+  } catch (e) {
+    errEl.textContent = 'Could not reach the server.';
+    statusEl.textContent = '';
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Search';
+}
+
+function renderSoundList(sounds) {
+  const listEl = document.getElementById('sound-list');
+  if (sounds.length === 0) {
+    listEl.style.display = 'none';
+    return;
+  }
+  listEl.innerHTML = sounds.map(s => `
+    <div class="sound-list-item" onclick="window.location.href='/sounds/${s.sound_id}'">
+      <div>
+        <div class="name">${escapeHtml(s.title)}</div>
+        <div class="author">${escapeHtml(s.author) || 'Unknown creator'}</div>
+      </div>
+      <div style="color: var(--text-muted);">&rsaquo;</div>
+    </div>
+  `).join('');
+  listEl.style.display = 'block';
+}
+
+function lookupFromList(soundId) {
+  document.getElementById('search-input').value = soundId;
+  search();
+  document.getElementById('sound-header').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function search() {
+  const input = document.getElementById('search-input');
+  const btn = document.getElementById('search-btn');
+  const errEl = document.getElementById('search-error');
+  const statusEl = document.getElementById('status');
+  const query = input.value.trim();
+  if (!query) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Searching...';
+  errEl.textContent = '';
+  statusEl.textContent = 'Pulling videos from TikTok — this can take a moment...';
+  document.getElementById('sound-header').style.display = 'none';
+  document.getElementById('stat-row').style.display = 'none';
+  document.getElementById('table-wrap').style.display = 'none';
+
+  try {
+    const res = await fetch('/api/sound_lookup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Something went wrong.';
+      statusEl.textContent = '';
+      return;
+    }
+    render(data);
+    statusEl.textContent = '';
+  } catch (e) {
+    errEl.textContent = 'Could not reach the server.';
+    statusEl.textContent = '';
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Search';
+}
+
+function render(data) {
+  document.getElementById('sound-name').textContent = data.title;
+  document.getElementById('sound-meta').textContent = data.author ? `by ${data.author}` : '';
+  document.getElementById('sound-header').style.display = 'block';
+
+  const totalViews = data.posts.reduce((sum, p) => sum + (p.views || 0), 0);
+  document.getElementById('stat-shown').textContent = data.posts.length;
+  document.getElementById('stat-total').textContent = fmt(data.video_count);
+  document.getElementById('stat-views').textContent = fmt(totalViews);
+  document.getElementById('stat-row').style.display = 'grid';
+
+  const tableWrap = document.getElementById('table-wrap');
+  const rowsEl = document.getElementById('post-rows');
+
+  if (data.posts.length === 0) {
+    tableWrap.style.display = 'block';
+    rowsEl.innerHTML = '<div class="empty">No videos found for this sound.</div>';
+    return;
+  }
+
+  rowsEl.innerHTML = data.posts.map(p => {
+    const videoUrl = `https://www.tiktok.com/@${p.username}/video/${p.post_id}`;
+    return `
+      <div class="row">
+        <div class="creator">@${escapeHtml(p.username)}</div>
+        <div class="caption" title="${escapeHtml(p.description)}">${escapeHtml(p.description) || '-'}</div>
+        <div>${fmt(p.views)}</div>
+        <div>${fmt(p.likes)}</div>
+        <div>${fmt(p.comments)}</div>
+        <div class="row-actions"><a href="${videoUrl}" target="_blank">&#8599;</a></div>
+      </div>
+    `;
+  }).join('');
+
+  tableWrap.style.display = 'block';
+}
+
+document.getElementById('song-search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') searchSongs();
+});
+
+document.getElementById('search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') search();
+});
+</script>
+
+</body>
+</html>

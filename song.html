@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Song</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface-1: #f7f7f8;
+    --surface-2: #f0f0f2;
+    --border: #e4e4e7;
+    --text-primary: #18181b;
+    --text-secondary: #52525b;
+    --text-muted: #a1a1aa;
+    --accent: #6366f1;
+    --accent-dim: #4f46e5;
+    --success-text: #059669;
+    --danger: #dc2626;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; padding: 20px 32px; border-bottom: 1px solid var(--border); }
+  header .nav a { font-size: 13px; color: var(--text-secondary); text-decoration: none; margin-right: 16px; }
+  header .nav a:hover { color: var(--text-primary); }
+  main { padding: 28px 32px; max-width: 1100px; margin: 0 auto; }
+  .breadcrumb { font-size: 13px; margin-bottom: 16px; }
+  .breadcrumb a { color: var(--text-muted); text-decoration: none; }
+  .breadcrumb a:hover { color: var(--text-primary); }
+
+  .song-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--border);
+  }
+  .song-title { font-size: 24px; font-weight: 600; }
+  .song-artist { font-size: 14px; color: var(--text-muted); margin-top: 4px; }
+  .delete-btn { background: none; border: 1px solid var(--border); color: var(--danger); font-size: 13px; padding: 7px 12px; border-radius: 8px; cursor: pointer; }
+
+  .section-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
+
+  .hero-card { background: linear-gradient(135deg, #0C447C 0%, #185FA5 100%); border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem; }
+  .hero-label { font-size: 12px; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
+  .hero-number { font-size: 40px; font-weight: 500; margin-top: 6px; color: white; }
+  .hero-chart { margin-top: 1.25rem; height: 70px; position: relative; }
+
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px; }
+  .stat-box { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .stat-box .label { font-size: 12px; color: var(--text-muted); }
+  .stat-box .value { font-size: 20px; font-weight: 600; margin-top: 4px; }
+
+  .table-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 28px; }
+  .srow { display: grid; grid-template-columns: 1.6fr 0.8fr 0.8fr 0.8fr 0.5fr; padding: 12px 16px; align-items: center; border-top: 1px solid var(--border); font-size: 13px; }
+  .srow.header-row { border-top: none; background: var(--surface-1); font-size: 12px; color: var(--text-muted); padding: 10px 16px; }
+  .srow:not(.header-row):hover { background: var(--surface-1); }
+  .sound-title { font-weight: 500; }
+  .sound-author { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+  .growth-up { color: var(--success-text); }
+  .growth-down { color: var(--danger); }
+  .growth-flat { color: var(--text-muted); }
+  .remove-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; }
+  .remove-btn:hover { color: var(--danger); }
+
+  .creator-row { display: grid; grid-template-columns: 28px 1.4fr 0.7fr 0.8fr 1fr 1fr; padding: 12px 16px; align-items: center; border-top: 1px solid var(--border); font-size: 13px; }
+  .creator-row:first-child { border-top: none; }
+  .creator-row.header-row { background: var(--surface-1); font-size: 12px; color: var(--text-muted); border-top: none; padding: 10px 16px; }
+  .rank-badge { width: 22px; height: 22px; border-radius: 50%; background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+
+  .filter-row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .filter-btn { font-size: 13px; font-family: inherit; background: var(--surface-1); border: 1px solid var(--border); color: var(--text-secondary); padding: 7px 14px; border-radius: 999px; cursor: pointer; }
+  .filter-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+  .posts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+  .post-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .post-card-thumb-wrap { position: relative; width: 100%; aspect-ratio: 9/12; background: var(--surface-2); }
+  .post-card-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .post-card-badge { position: absolute; top: 8px; left: 8px; font-size: 10px; color: white; background: rgba(0,0,0,0.55); padding: 2px 7px; border-radius: 5px; }
+  .post-card-body { padding: 10px 12px; }
+  .post-card-creator { font-size: 13px; font-weight: 500; }
+  .post-card-caption { font-size: 12px; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .post-card-stats { display: flex; gap: 10px; margin-top: 8px; font-size: 11px; color: var(--text-secondary); }
+
+  .empty { padding: 32px; text-align: center; color: var(--text-muted); font-size: 14px; }
+  #status { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; min-height: 16px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="nav">
+    <a href="/">Dashboard</a>
+    <a href="/songs">Songs</a>
+    <a href="/campaigns">Campaigns</a>
+    <a href="/artists">Artists</a>
+    <a href="/sounds">Sound lookup</a>
+  </div>
+</header>
+
+<main>
+  <div class="breadcrumb"><a href="/songs">&larr; All songs</a></div>
+
+  <div class="song-header">
+    <div>
+      <div class="song-title" id="song-title">Loading...</div>
+      <div class="song-artist" id="song-artist"></div>
+    </div>
+    <button class="delete-btn" onclick="deleteSong()">Delete</button>
+  </div>
+
+  <div id="status"></div>
+
+  <!-- Section 1: Overall performance + historical growth -->
+  <div class="hero-card">
+    <div class="hero-label">Total creates (all sounds)</div>
+    <div class="hero-number" id="hero-number">0</div>
+    <div class="hero-chart"><canvas id="trendChart"></canvas></div>
+  </div>
+  <div class="stat-row">
+    <div class="stat-box"><div class="label">Sounds tracked</div><div class="value" id="stat-sounds">-</div></div>
+    <div class="stat-box"><div class="label">Creators</div><div class="value" id="stat-creators">-</div></div>
+    <div class="stat-box"><div class="label">Total views (sampled)</div><div class="value" id="stat-views">-</div></div>
+    <div class="stat-box"><div class="label">Total likes (sampled)</div><div class="value" id="stat-likes">-</div></div>
+  </div>
+
+  <!-- Section 2: Top Sounds -->
+  <div class="section-label">Top sounds</div>
+  <div class="table-wrap">
+    <div class="srow header-row">
+      <div>Sound</div>
+      <div>Total creates</div>
+      <div>24h growth</div>
+      <div>7d growth</div>
+      <div></div>
+    </div>
+    <div id="sounds-rows"></div>
+  </div>
+
+  <!-- Section 3: Top Creators -->
+  <div class="section-label">Top creators</div>
+  <div class="table-wrap">
+    <div class="creator-row header-row">
+      <div></div>
+      <div>Creator</div>
+      <div>Creates</div>
+      <div>Followers</div>
+      <div>Views</div>
+      <div>Likes</div>
+    </div>
+    <div id="creators-rows"></div>
+  </div>
+
+  <!-- Section 4: Top Posts -->
+  <div class="section-label">Top posts</div>
+  <div class="filter-row">
+    <button class="filter-btn active" data-window="24h" onclick="setWindow('24h')">Last 24h</button>
+    <button class="filter-btn" data-window="7d" onclick="setWindow('7d')">Last 7 days</button>
+    <button class="filter-btn" data-window="all" onclick="setWindow('all')">All time</button>
+  </div>
+  <div class="posts-grid" id="posts-grid"></div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const songId = window.location.pathname.split('/').pop();
+let currentWindow = '24h';
+
+function fmt(n) {
+  if (n == null || isNaN(n)) return '-';
+  if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+  return String(n);
+}
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+function animateNumber(el, target) {
+  if (!target) { el.textContent = '0'; return; }
+  let current = 0;
+  const steps = 30;
+  const increment = target / steps;
+  let i = 0;
+  const timer = setInterval(() => {
+    i++; current += increment;
+    if (i >= steps) { current = target; clearInterval(timer); }
+    el.textContent = Math.round(current).toLocaleString();
+  }, 16);
+}
+
+async function load() {
+  try {
+    const res = await fetch(`/api/songs/${songId}/detail?window=${currentWindow}`);
+    const data = await res.json();
+    if (!res.ok) {
+      document.getElementById('song-title').textContent = data.error || 'Song not found';
+      return;
+    }
+
+    document.getElementById('song-title').textContent = data.song.name;
+    document.getElementById('song-artist').textContent = data.song.artist || '';
+
+    animateNumber(document.getElementById('hero-number'), data.header_stats.total_creates);
+    document.getElementById('stat-sounds').textContent = data.sounds.length;
+    document.getElementById('stat-creators').textContent = fmt(data.header_stats.creator_count);
+    document.getElementById('stat-views').textContent = fmt(data.header_stats.views);
+    document.getElementById('stat-likes').textContent = fmt(data.header_stats.likes);
+
+    renderTrend(data.trend);
+    renderSounds(data.sounds);
+    renderCreators(data.top_creators);
+    renderPosts(data.top_posts);
+
+    document.getElementById('status').textContent = '';
+  } catch (e) {
+    document.getElementById('status').textContent = 'Could not reach the server.';
+  }
+}
+
+function renderTrend(trend) {
+  const ctx = document.getElementById('trendChart');
+  const values = trend.map(t => t.total_creates || 0);
+  if (values.length < 2) {
+    ctx.parentElement.innerHTML = '<div style="color:rgba(255,255,255,0.6); font-size:13px; padding-top:24px; text-align:center;">Not enough history yet — check back tomorrow for a trend line.</div>';
+    return;
+  }
+  new Chart(ctx, {
+    type: 'line',
+    data: { labels: trend.map(t => t.date), datasets: [{ data: values, borderColor: '#ffffff', backgroundColor: 'rgba(255,255,255,0.12)', fill: true, tension: 0.35, pointRadius: 0, borderWidth: 2.5 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } } }
+  });
+}
+
+function growthCell(value, pct) {
+  if (value == null) return '<span class="growth-flat">—</span>';
+  const cls = value > 0 ? 'growth-up' : value < 0 ? 'growth-down' : 'growth-flat';
+  const sign = value > 0 ? '+' : '';
+  const pctStr = pct != null ? ` (${sign}${pct}%)` : '';
+  return `<span class="${cls}">${sign}${fmt(value)}${pctStr}</span>`;
+}
+
+function renderSounds(sounds) {
+  const rowsEl = document.getElementById('sounds-rows');
+  if (sounds.length === 0) {
+    rowsEl.innerHTML = '<div class="empty">No sounds found yet.</div>';
+    return;
+  }
+  rowsEl.innerHTML = sounds.map(s => `
+    <div class="srow">
+      <div>
+        <div class="sound-title">${escapeHtml(s.title || 'Unknown sound')}</div>
+        <div class="sound-author">${escapeHtml(s.author || '')}</div>
+      </div>
+      <div>${fmt(s.total_creates)}</div>
+      <div>${growthCell(s.growth_24h, s.growth_24h_pct)}</div>
+      <div>${growthCell(s.growth_7d, s.growth_7d_pct)}</div>
+      <div><button class="remove-btn" onclick="removeSound(${s.id})" title="Remove">&times;</button></div>
+    </div>
+  `).join('');
+}
+
+function renderCreators(creators) {
+  const rowsEl = document.getElementById('creators-rows');
+  if (creators.length === 0) {
+    rowsEl.innerHTML = '<div class="empty">No creators yet.</div>';
+    return;
+  }
+  rowsEl.innerHTML = creators.map((c, i) => `
+    <div class="creator-row">
+      <div class="rank-badge">${i + 1}</div>
+      <div>@${escapeHtml(c.username)}</div>
+      <div>${fmt(c.video_count)}</div>
+      <div>${fmt(c.followers)}</div>
+      <div>${fmt(c.total_views)}</div>
+      <div>${fmt(c.total_likes)}</div>
+    </div>
+  `).join('');
+}
+
+function renderPosts(posts) {
+  const grid = document.getElementById('posts-grid');
+  if (posts.length === 0) {
+    grid.innerHTML = '<div class="empty">No posts in this range.</div>';
+    return;
+  }
+  grid.innerHTML = posts.slice(0, 60).map(p => {
+    const eng = p.views > 0 ? ((p.likes||0)+(p.comments||0)+(p.saves||0))/p.views : 0;
+    const videoUrl = `https://www.tiktok.com/@${p.username}/video/${p.post_id}`;
+    const thumbHtml = p.thumbnail
+      ? `<img class="post-card-thumb" src="${p.thumbnail}" alt="" loading="lazy" onerror="this.style.display='none'">`
+      : `<div class="post-card-thumb" style="display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;">No preview</div>`;
+    return `
+      <div class="post-card">
+        <div class="post-card-thumb-wrap">
+          <a href="${videoUrl}" target="_blank">${thumbHtml}</a>
+          <div class="post-card-badge">${(eng*100).toFixed(1)}%</div>
+        </div>
+        <div class="post-card-body">
+          <div class="post-card-creator">@${escapeHtml(p.username)}</div>
+          <div class="post-card-caption" title="${escapeHtml(p.description)}">${escapeHtml(p.description) || '-'}</div>
+          <div class="post-card-stats">
+            <span>&#9654; ${fmt(p.views)}</span>
+            <span>&#9825; ${fmt(p.likes)}</span>
+            <span>&#128172; ${fmt(p.comments)}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function setWindow(w) {
+  currentWindow = w;
+  document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.window === w));
+  load();
+}
+
+async function removeSound(soundDbId) {
+  if (!confirm('Remove this sound from the song?')) return;
+  await fetch(`/api/sounds/${soundDbId}`, { method: 'DELETE' });
+  await load();
+}
+
+async function deleteSong() {
+  const name = document.getElementById('song-title').textContent;
+  if (!confirm(`Delete "${name}" and all its tracked sounds/posts? This can't be undone.`)) return;
+  await fetch(`/api/songs/${songId}`, { method: 'DELETE' });
+  window.location.href = '/songs';
+}
+
+load();
+</script>
+
+</body>
+</html>

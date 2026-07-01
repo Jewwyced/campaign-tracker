@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Artists</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface-1: #f7f7f8;
+    --surface-2: #f0f0f2;
+    --border: #e4e4e7;
+    --text-primary: #18181b;
+    --text-secondary: #52525b;
+    --text-muted: #a1a1aa;
+    --accent: #6366f1;
+    --accent-dim: #4f46e5;
+    --success-text: #059669;
+    --danger: #dc2626;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  header a {
+    font-size: 13px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    margin-right: 16px;
+  }
+  header a.current { color: var(--text-primary); font-weight: 500; }
+  header a:hover { color: var(--text-primary); }
+  main {
+    padding: 28px 32px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .toolbar .title { font-size: 18px; font-weight: 500; }
+  .toolbar .subtitle { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+  button {
+    font-size: 13px;
+    font-family: inherit;
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--accent-dim); }
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+  button.secondary:hover { color: var(--text-primary); border-color: var(--text-muted); }
+
+  .table-wrap {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    padding: 14px 16px;
+    align-items: center;
+    border-top: 1px solid var(--border);
+  }
+  .row.header-row {
+    border-top: none;
+    background: var(--surface-1);
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 10px 16px;
+  }
+  .row:not(.header-row) { cursor: pointer; }
+  .row:not(.header-row):hover { background: var(--surface-1); }
+  .artist-name { font-size: 14px; font-weight: 500; }
+  .cell-num { font-size: 14px; color: var(--text-secondary); }
+  .cell-muted { font-size: 13px; color: var(--text-muted); }
+
+  .empty {
+    padding: 48px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    width: 380px;
+  }
+  .modal h3 { font-size: 15px; font-weight: 500; margin-bottom: 16px; }
+  .modal label { font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px; }
+  .modal input {
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    margin-bottom: 16px;
+    font-family: inherit;
+  }
+  .modal input:focus { outline: none; border-color: var(--accent); }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  #create-error { font-size: 13px; color: var(--danger); margin-bottom: 12px; }
+  #status { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; min-height: 16px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <a href="/">Dashboard</a>
+    <a href="/campaigns">Campaigns</a>
+    <a href="/songs">Songs</a>
+    <a href="/artists" class="current">Artists</a>
+    <a href="/sounds">Sound lookup</a>
+  </div>
+</header>
+
+<main>
+  <div class="toolbar">
+    <div>
+      <div class="title">Artists</div>
+      <div class="subtitle" id="artist-count">Loading...</div>
+    </div>
+    <button onclick="openModal()">New artist</button>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="table-wrap">
+    <div class="row header-row">
+      <div>Artist</div>
+      <div>Accounts</div>
+      <div>Followers</div>
+      <div>Created</div>
+    </div>
+    <div id="artist-rows"></div>
+  </div>
+</main>
+
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <h3>New artist</h3>
+    <div id="create-error"></div>
+    <label for="artist-name">Artist name</label>
+    <input type="text" id="artist-name" placeholder="Beck">
+    <div class="modal-actions">
+      <button class="secondary" onclick="closeModal()">Cancel</button>
+      <button onclick="createArtist()" id="create-btn">Create artist</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let artists = [];
+let artistDetails = {};
+
+function fmt(n) {
+  if (n == null || isNaN(n)) return '-';
+  if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+  return String(n);
+}
+
+function timeAgo(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return hours + 'h ago';
+  const days = Math.floor(hours / 24);
+  return days + 'd ago';
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+async function loadArtists() {
+  try {
+    const res = await fetch('/api/artists');
+    artists = await res.json();
+
+    await Promise.all(artists.map(async a => {
+      try {
+        const r = await fetch(`/api/artists/${a.id}`);
+        artistDetails[a.id] = await r.json();
+      } catch (e) {
+        artistDetails[a.id] = null;
+      }
+    }));
+
+    render();
+    document.getElementById('status').textContent = '';
+  } catch (e) {
+    document.getElementById('status').textContent = 'Could not reach the server.';
+  }
+}
+
+function render() {
+  const countEl = document.getElementById('artist-count');
+  countEl.textContent = artists.length === 0
+    ? 'No artists yet'
+    : `${artists.length} artist${artists.length === 1 ? '' : 's'}`;
+
+  const rowsEl = document.getElementById('artist-rows');
+  if (artists.length === 0) {
+    rowsEl.innerHTML = '<div class="empty">Add your first artist.<br><span style="font-size:13px;">Track their connected accounts in one place.</span></div>';
+    return;
+  }
+
+  rowsEl.innerHTML = artists.map(a => {
+    const detail = artistDetails[a.id];
+    const totals = detail ? detail.totals : { followers: 0, account_count: 0 };
+    return `
+      <div class="row" onclick="window.location.href='/artists/${a.id}'">
+        <div class="artist-name">${escapeHtml(a.name)}</div>
+        <div class="cell-num">${totals.account_count}</div>
+        <div class="cell-num">${fmt(totals.followers)}</div>
+        <div class="cell-muted">${timeAgo(a.created_at)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openModal() {
+  document.getElementById('modal-overlay').classList.add('open');
+  document.getElementById('create-error').textContent = '';
+  document.getElementById('artist-name').value = '';
+  document.getElementById('artist-name').focus();
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+async function createArtist() {
+  const name = document.getElementById('artist-name').value.trim();
+  const btn = document.getElementById('create-btn');
+  const errEl = document.getElementById('create-error');
+
+  if (!name) {
+    errEl.textContent = 'Artist name is required.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+  errEl.textContent = '';
+
+  try {
+    const res = await fetch('/api/artists', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Something went wrong.';
+    } else {
+      closeModal();
+      window.location.href = `/artists/${data.id}`;
+    }
+  } catch (e) {
+    errEl.textContent = 'Could not reach the server.';
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Create artist';
+}
+
+document.getElementById('modal-overlay').addEventListener('click', (e) => {
+  if (e.target.id === 'modal-overlay') closeModal();
+});
+
+loadArtists();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Sound</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface-1: #f7f7f8;
+    --surface-2: #f0f0f2;
+    --border: #e4e4e7;
+    --text-primary: #18181b;
+    --text-secondary: #52525b;
+    --text-muted: #a1a1aa;
+    --accent: #6366f1;
+    --accent-dim: #4f46e5;
+    --danger: #dc2626;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  header a {
+    font-size: 13px;
+    color: var(--text-secondary);
+    text-decoration: none;
+  }
+  header a:hover { color: var(--text-primary); }
+  main {
+    padding: 28px 32px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .sound-name { font-size: 22px; font-weight: 500; }
+  .sound-author { font-size: 14px; color: var(--text-muted); margin-top: 4px; margin-bottom: 24px; }
+
+  .stat-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .stat-box {
+    background: var(--surface-1);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .stat-box .label { font-size: 12px; color: var(--text-muted); }
+  .stat-box .value { font-size: 20px; font-weight: 500; margin-top: 4px; }
+
+  .table-wrap {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 1.4fr 2.2fr 0.8fr 0.8fr 0.8fr 0.5fr;
+    padding: 12px 16px;
+    align-items: center;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .row.header-row {
+    border-top: none;
+    background: var(--surface-1);
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 10px 16px;
+  }
+  .creator { color: var(--text-secondary); }
+  .caption {
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .row-actions { text-align: right; }
+  .row-actions a {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 13px;
+  }
+  .row-actions a:hover { color: var(--text-primary); }
+
+  .empty {
+    padding: 48px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+  #status { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; min-height: 16px; }
+
+  .add-to-campaign-btn {
+    font-size: 11px;
+    font-family: inherit;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: 4px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-right: 8px;
+  }
+  .add-to-campaign-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    width: 380px;
+  }
+  .modal h3 { font-size: 15px; font-weight: 500; margin-bottom: 16px; }
+  .modal button {
+    font-size: 13px;
+    font-family: inherit;
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 9px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  #error { font-size: 14px; color: var(--danger); padding: 24px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <a href="/sounds">&larr; Sound lookup</a>
+</header>
+
+<main>
+  <div id="error"></div>
+  <div id="content" style="display:none;">
+    <div class="sound-name" id="sound-name"></div>
+    <div class="sound-author" id="sound-author"></div>
+
+    <div class="stat-row">
+      <div class="stat-box"><div class="label">Videos shown</div><div class="value" id="stat-shown">-</div></div>
+      <div class="stat-box"><div class="label">Total videos (TikTok)</div><div class="value" id="stat-total">-</div></div>
+      <div class="stat-box"><div class="label">Total views (shown)</div><div class="value" id="stat-views">-</div></div>
+    </div>
+
+    <div id="status"></div>
+
+    <div class="table-wrap">
+      <div class="row header-row">
+        <div>Creator</div>
+        <div>Caption</div>
+        <div>Views</div>
+        <div>Likes</div>
+        <div>Comments</div>
+        <div></div>
+      </div>
+      <div id="post-rows"></div>
+    </div>
+  </div>
+</main>
+
+<div class="modal-overlay" id="campaign-picker-modal">
+  <div class="modal">
+    <h3>Add to campaign</h3>
+    <div id="campaign-picker-error" style="font-size:13px; color:var(--danger); margin-bottom:12px;"></div>
+    <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:6px;">Choose a campaign</label>
+    <select id="campaign-picker-select" style="width:100%; font-family:inherit; font-size:14px; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text-primary); margin-bottom:16px;"></select>
+    <div style="display:flex; justify-content:flex-end; gap:8px;">
+      <button onclick="closeCampaignPicker()" style="background:transparent; border:1px solid var(--border); color:var(--text-secondary);">Cancel</button>
+      <button onclick="confirmAddToCampaign()" id="campaign-picker-confirm">Add to campaign</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const soundId = window.location.pathname.split('/').pop();
+
+function fmt(n) {
+  if (n == null || isNaN(n)) return '-';
+  if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+  return String(n);
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+
+async function load() {
+  document.getElementById('status').textContent = 'Pulling videos from TikTok...';
+  try {
+    const res = await fetch(`/api/sound/${soundId}`);
+    const data = await res.json();
+    if (!res.ok) {
+      document.getElementById('error').textContent = data.error || 'Could not load this sound.';
+      return;
+    }
+    render(data);
+  } catch (e) {
+    document.getElementById('error').textContent = 'Could not reach the server.';
+  }
+}
+
+function render(data) {
+  document.getElementById('sound-name').textContent = data.title;
+  document.getElementById('sound-author').textContent = data.author ? `by ${data.author}` : '';
+
+  const totalViews = data.posts.reduce((sum, p) => sum + (p.views || 0), 0);
+  document.getElementById('stat-shown').textContent = data.posts.length;
+  document.getElementById('stat-total').textContent = fmt(data.video_count);
+  document.getElementById('stat-views').textContent = fmt(totalViews);
+
+  const rowsEl = document.getElementById('post-rows');
+  if (data.posts.length === 0) {
+    rowsEl.innerHTML = '<div class="empty">No videos found for this sound.</div>';
+  } else {
+    rowsEl.innerHTML = data.posts.map(p => {
+      const videoUrl = `https://www.tiktok.com/@${p.username}/video/${p.post_id}`;
+      return `
+        <div class="row">
+          <div class="creator">@${escapeHtml(p.username)}</div>
+          <div class="caption" title="${escapeHtml(p.description)}">${escapeHtml(p.description) || '-'}</div>
+          <div>${fmt(p.views)}</div>
+          <div>${fmt(p.likes)}</div>
+          <div>${fmt(p.comments)}</div>
+          <div class="row-actions">
+            <button class="add-to-campaign-btn" onclick="openCampaignPicker('${videoUrl}')" title="Add to campaign">+ Campaign</button>
+            <a href="${videoUrl}" target="_blank">&#8599;</a>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  document.getElementById('status').textContent = '';
+  document.getElementById('content').style.display = 'block';
+}
+
+let campaignsCache = null;
+let pendingUrl = null;
+
+async function openCampaignPicker(videoUrl) {
+  pendingUrl = videoUrl;
+  const modal = document.getElementById('campaign-picker-modal');
+  const select = document.getElementById('campaign-picker-select');
+  const errEl = document.getElementById('campaign-picker-error');
+  errEl.textContent = '';
+
+  if (!campaignsCache) {
+    try {
+      const res = await fetch('/api/campaigns');
+      campaignsCache = await res.json();
+    } catch (e) {
+      campaignsCache = [];
+    }
+  }
+
+  if (campaignsCache.length === 0) {
+    select.innerHTML = '<option value="">No campaigns yet — create one first</option>';
+  } else {
+    select.innerHTML = campaignsCache.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+  }
+
+  modal.classList.add('open');
+}
+
+function closeCampaignPicker() {
+  document.getElementById('campaign-picker-modal').classList.remove('open');
+  pendingUrl = null;
+}
+
+async function confirmAddToCampaign() {
+  const select = document.getElementById('campaign-picker-select');
+  const errEl = document.getElementById('campaign-picker-error');
+  const btn = document.getElementById('campaign-picker-confirm');
+  const campaignId = select.value;
+
+  if (!campaignId || !pendingUrl) {
+    errEl.textContent = 'Select a campaign first.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Adding...';
+  errEl.textContent = '';
+
+  try {
+    const res = await fetch(`/api/campaigns/${campaignId}/add_post`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: pendingUrl })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Something went wrong.';
+    } else {
+      closeCampaignPicker();
+    }
+  } catch (e) {
+    errEl.textContent = 'Could not reach the server.';
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Add to campaign';
+}
+
+load();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Artist</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface-1: #f7f7f8;
+    --surface-2: #f0f0f2;
+    --border: #e4e4e7;
+    --text-primary: #18181b;
+    --text-secondary: #52525b;
+    --text-muted: #a1a1aa;
+    --accent: #6366f1;
+    --accent-dim: #4f46e5;
+    --success-text: #059669;
+    --danger: #dc2626;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  header .nav a {
+    font-size: 13px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    margin-right: 16px;
+  }
+  header .nav a:hover { color: var(--text-primary); }
+  main {
+    padding: 28px 32px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .breadcrumb { font-size: 13px; margin-bottom: 16px; }
+  .breadcrumb a { color: var(--text-muted); text-decoration: none; }
+  .breadcrumb a:hover { color: var(--text-primary); }
+
+  .artist-title {
+    font-size: 24px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    margin-bottom: 12px;
+  }
+
+  .stat-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .stat-row:last-of-type { margin-bottom: 32px; }
+  .stat-box {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .stat-box .label { font-size: 12px; color: var(--text-muted); }
+  .stat-box .value { font-size: 22px; font-weight: 600; margin-top: 6px; }
+
+  .add-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 32px;
+  }
+  .add-card .add-label { font-size: 13px; color: var(--text-secondary); margin-bottom: 10px; }
+  .add-row { display: flex; gap: 8px; }
+  input[type=text], select {
+    font-family: inherit;
+    font-size: 14px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-primary);
+  }
+  input[type=text] { flex: 1; }
+  input[type=text]:focus, select:focus { outline: none; border-color: var(--accent); }
+  button {
+    font-size: 13px;
+    font-family: inherit;
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 9px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:hover { background: var(--accent-dim); }
+  button:disabled { background: var(--text-muted); cursor: default; }
+  #add-error { font-size: 13px; color: var(--danger); margin-top: 10px; }
+
+  .chart-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 32px;
+  }
+  .chart-legend {
+    display: flex;
+    gap: 18px;
+    margin-bottom: 14px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .chart-empty {
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+    padding: 40px 0;
+  }
+
+  .table-wrap {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr 0.5fr;
+    padding: 12px 16px;
+    align-items: center;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .row.header-row {
+    border-top: none;
+    background: var(--surface-1);
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 10px 16px;
+  }
+  .row:not(.header-row):hover { background: var(--surface-1); }
+  .account-name { color: var(--text-secondary); font-weight: 500; }
+  .account-type { font-size: 11px; color: var(--text-muted); }
+  .delta-up { color: var(--success-text); }
+  .delta-down { color: var(--danger); }
+  .delta-flat { color: var(--text-muted); }
+  .row-actions { text-align: right; }
+  .row-actions a, .row-actions button.icon-btn {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 13px;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+  .row-actions a:hover { color: var(--text-primary); }
+  .row-actions button.icon-btn:hover { color: var(--danger); }
+
+  .empty {
+    padding: 48px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+  #status { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; min-height: 16px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="nav">
+    <a href="/">Dashboard</a>
+    <a href="/campaigns">Campaigns</a>
+    <a href="/songs">Songs</a>
+    <a href="/artists">Artists</a>
+    <a href="/sounds">Sound lookup</a>
+  </div>
+</header>
+
+<main>
+  <div class="breadcrumb"><a href="/artists">&larr; All artists</a></div>
+
+  <div class="artist-title" id="artist-title">Loading...</div>
+
+  <div class="section-label">Overview</div>
+  <div class="stat-row">
+    <div class="stat-box"><div class="label">Total followers</div><div class="value" id="stat-followers">-</div></div>
+    <div class="stat-box"><div class="label">Total creates</div><div class="value" id="stat-creates">-</div></div>
+    <div class="stat-box"><div class="label">Total views</div><div class="value" id="stat-views">-</div></div>
+    <div class="stat-box"><div class="label">Total likes</div><div class="value" id="stat-likes">-</div></div>
+  </div>
+  <div class="stat-row">
+    <div class="stat-box"><div class="label">Total comments</div><div class="value" id="stat-comments">-</div></div>
+    <div class="stat-box"><div class="label">Total shares</div><div class="value" id="stat-shares">-</div></div>
+    <div class="stat-box"><div class="label">Total engagements</div><div class="value" id="stat-engagements">-</div></div>
+    <div class="stat-box"><div class="label">Connected accounts</div><div class="value" id="stat-accounts">-</div></div>
+  </div>
+
+  <div class="section-label">Trend</div>
+  <div class="chart-card">
+    <div class="chart-legend">
+      <div class="legend-item"><span class="legend-dot" style="background:#6366f1;"></span>Followers</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#059669;"></span>Views</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#b45309;"></span>Creates</div>
+    </div>
+    <div id="chart-container"></div>
+  </div>
+
+  <div class="add-card">
+    <div class="add-label">Add a connected account</div>
+    <div class="add-row">
+      <input type="text" id="username-input" placeholder="TikTok username (no @)">
+      <select id="account-type-input">
+        <option value="Fan Account">Fan Account</option>
+        <option value="Official Account">Official Account</option>
+      </select>
+      <button onclick="addAccount()" id="add-btn">Add</button>
+    </div>
+    <div id="add-error"></div>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="section-label">Connected Accounts</div>
+  <div class="table-wrap">
+    <div class="row header-row">
+      <div>Account</div>
+      <div>Followers</div>
+      <div>+24h</div>
+      <div>Likes</div>
+      <div>Videos</div>
+      <div></div>
+    </div>
+    <div id="account-rows"></div>
+  </div>
+</main>
+
+<script>
+const artistId = window.location.pathname.split('/').pop();
+
+function fmt(n) {
+  if (n == null || isNaN(n)) return '-';
+  if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+  return String(n);
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+
+async function load() {
+  try {
+    const res = await fetch(`/api/artists/${artistId}`);
+    const data = await res.json();
+    if (!res.ok) {
+      document.getElementById('artist-title').textContent = data.error || 'Artist not found';
+      return;
+    }
+
+    document.getElementById('artist-title').textContent = data.artist.name;
+    document.getElementById('stat-followers').textContent = fmt(data.totals.followers);
+    document.getElementById('stat-creates').textContent = fmt(data.totals.video_count);
+    document.getElementById('stat-views').textContent = fmt(data.totals.total_views);
+    document.getElementById('stat-likes').textContent = fmt(data.totals.total_likes);
+    document.getElementById('stat-comments').textContent = fmt(data.totals.total_comments);
+    document.getElementById('stat-shares').textContent = fmt(data.totals.total_shares);
+    document.getElementById('stat-engagements').textContent = fmt(data.totals.total_engagements);
+    document.getElementById('stat-accounts').textContent = data.totals.account_count;
+
+    renderAccounts(data.accounts);
+    document.getElementById('status').textContent = '';
+    loadChart();
+  } catch (e) {
+    document.getElementById('status').textContent = 'Could not reach the server.';
+  }
+}
+
+async function loadChart() {
+  const container = document.getElementById('chart-container');
+  try {
+    const res = await fetch(`/api/artists/${artistId}/history`);
+    const data = await res.json();
+    renderChart(data.dates);
+  } catch (e) {
+    container.innerHTML = '<div class="chart-empty">Could not load trend data.</div>';
+  }
+}
+
+function renderChart(points) {
+  const container = document.getElementById('chart-container');
+  if (!points || points.length < 2) {
+    container.innerHTML = '<div class="chart-empty">Not enough data yet — check back after a few days of tracking.</div>';
+    return;
+  }
+
+  const width = 1000, height = 220, padding = 30;
+  const dates = points.map(p => p.date);
+
+  function buildLine(values, color) {
+    const max = Math.max(...values, 1);
+    const min = Math.min(...values, 0);
+    const range = max - min || 1;
+    const stepX = (width - padding * 2) / (values.length - 1);
+    const coords = values.map((v, i) => {
+      const x = padding + i * stepX;
+      const y = height - padding - ((v - min) / range) * (height - padding * 2);
+      return `${x},${y}`;
+    });
+    return `<polyline points="${coords.join(' ')}" fill="none" stroke="${color}" stroke-width="2" />`;
+  }
+
+  const followers = points.map(p => p.followers || 0);
+  const views = points.map(p => p.views || 0);
+  const creates = points.map(p => p.creates || 0);
+
+  const followersLine = buildLine(followers, '#6366f1');
+  const viewsLine = buildLine(views, '#059669');
+  const createsLine = buildLine(creates, '#b45309');
+
+  const labelStep = Math.max(1, Math.floor(dates.length / 6));
+  const labels = dates.map((d, i) => {
+    if (i % labelStep !== 0 && i !== dates.length - 1) return '';
+    const stepX = (width - padding * 2) / (dates.length - 1);
+    const x = padding + i * stepX;
+    const short = new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return `<text x="${x}" y="${height - 6}" font-size="10" fill="#a1a1aa" text-anchor="middle">${short}</text>`;
+  }).join('');
+
+  container.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" style="width:100%; height:220px;">
+      ${followersLine}
+      ${viewsLine}
+      ${createsLine}
+      ${labels}
+    </svg>
+  `;
+}
+
+function renderAccounts(accounts) {
+  const rowsEl = document.getElementById('account-rows');
+  if (accounts.length === 0) {
+    rowsEl.innerHTML = '<div class="empty">No accounts yet.<br><span style="font-size:13px;">Add a TikTok username above to start tracking.</span></div>';
+    return;
+  }
+
+  rowsEl.innerHTML = accounts.map(a => {
+    const delta = a.followers_delta_24h;
+    const deltaClass = delta == null ? 'delta-flat' : delta > 0 ? 'delta-up' : delta < 0 ? 'delta-down' : 'delta-flat';
+    const deltaText = delta == null ? '—' : delta > 0 ? '+' + fmt(delta) : fmt(delta);
+    const profileUrl = `https://www.tiktok.com/@${a.username}`;
+    return `
+      <div class="row">
+        <div>
+          <div class="account-name">@${escapeHtml(a.username)}</div>
+          <div class="account-type">${escapeHtml(a.account_type)}</div>
+        </div>
+        <div>${fmt(a.followers)}</div>
+        <div class="${deltaClass}">${deltaText}</div>
+        <div>${fmt(a.total_likes)}</div>
+        <div>${fmt(a.video_count)}</div>
+        <div class="row-actions">
+          <a href="${profileUrl}" target="_blank" title="View on TikTok">&#8599;</a>
+          <button class="icon-btn" onclick="removeAccount('${a.username}')" title="Remove">&times;</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function addAccount() {
+  const input = document.getElementById('username-input');
+  const typeSelect = document.getElementById('account-type-input');
+  const btn = document.getElementById('add-btn');
+  const errEl = document.getElementById('add-error');
+  const username = input.value.trim();
+  if (!username) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Adding...';
+  errEl.textContent = '';
+
+  try {
+    const res = await fetch(`/api/artists/${artistId}/accounts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, account_type: typeSelect.value })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Something went wrong.';
+    } else {
+      input.value = '';
+      await load();
+    }
+  } catch (e) {
+    errEl.textContent = 'Could not reach the server.';
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Add';
+}
+
+async function removeAccount(username) {
+  if (!confirm(`Remove @${username} from this artist?`)) return;
+  await fetch(`/api/artists/${artistId}/accounts/${username}`, { method: 'DELETE' });
+  await load();
+}
+
+document.getElementById('username-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') addAccount();
+});
+
+load();
+</script>
+
+</body>
+</html>

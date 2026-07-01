@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Campaign Tracker</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface-1: #f7f7f8;
+    --surface-2: #f0f0f2;
+    --border: #e4e4e7;
+    --text-primary: #18181b;
+    --text-secondary: #52525b;
+    --text-muted: #a1a1aa;
+    --accent: #6366f1;
+    --accent-dim: #4f46e5;
+    --success-bg: #ecfdf5;
+    --success-text: #059669;
+    --neutral-bg: #f0f0f2;
+    --neutral-text: #71717a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  main {
+    padding: 28px 32px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .summary-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 20px;
+  }
+  .summary-text {
+    font-size: 14px;
+    color: var(--text-primary);
+    line-height: 1.55;
+    margin-bottom: 14px;
+  }
+  .summary-stats {
+    display: flex;
+    gap: 24px;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+  }
+  .summary-stat {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .summary-stat strong {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .toolbar .title {
+    font-size: 18px;
+    font-weight: 500;
+  }
+  .toolbar .subtitle {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  button {
+    font-size: 13px;
+    font-family: inherit;
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--accent-dim); }
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+  button.secondary:hover { color: var(--text-primary); border-color: var(--text-muted); }
+
+  .table-wrap {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr 1fr 0.4fr;
+    padding: 14px 16px;
+    align-items: center;
+    border-top: 1px solid var(--border);
+  }
+  .row.header-row {
+    border-top: none;
+    background: var(--surface-1);
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 10px 16px;
+  }
+  .row:not(.header-row) {
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .row:not(.header-row):hover {
+    background: var(--surface-2);
+  }
+  .campaign-name {
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .campaign-artist {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 999px;
+  }
+  .pill.active {
+    background: var(--success-bg);
+    color: var(--success-text);
+  }
+  .pill.neutral {
+    background: var(--neutral-bg);
+    color: var(--neutral-text);
+  }
+  .pill .dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-right: 6px;
+    background: currentColor;
+  }
+  .cell-num { font-size: 14px; color: var(--text-secondary); }
+  .cell-muted { font-size: 13px; color: var(--text-muted); }
+
+  .empty {
+    padding: 48px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  /* Modal for creating a campaign */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    width: 380px;
+  }
+  .modal h3 { font-size: 15px; font-weight: 500; margin-bottom: 16px; }
+  .modal label {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: block;
+    margin-bottom: 6px;
+  }
+  .modal input {
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    margin-bottom: 16px;
+    font-family: inherit;
+  }
+  .modal input:focus { outline: none; border-color: var(--accent); }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  #create-error {
+    font-size: 13px;
+    color: #dc2626;
+    margin-bottom: 12px;
+  }
+  #status { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; min-height: 16px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <a href="/" style="font-size:13px; color:var(--text-secondary); text-decoration:none; margin-right:16px;">Dashboard</a>
+    <a href="/campaigns" style="font-size:13px; color:var(--text-primary); font-weight:500; text-decoration:none; margin-right:16px;">Campaigns</a>
+    <a href="/artists" style="font-size:13px; color:var(--text-secondary); text-decoration:none; margin-right:16px;">Artists</a>
+    <a href="/sounds" style="font-size:13px; color:var(--text-secondary); text-decoration:none;">Sound lookup</a>
+  </div>
+</header>
+
+<main>
+  <div class="summary-card" id="summary-card" style="display:none;">
+    <div class="summary-text" id="summary-text"></div>
+    <div class="summary-stats" id="summary-stats"></div>
+  </div>
+
+  <div class="toolbar">
+    <div>
+      <div class="title">Campaigns</div>
+      <div class="subtitle" id="campaign-count">Loading...</div>
+    </div>
+    <button onclick="openModal()">New campaign</button>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="table-wrap" id="table-wrap">
+    <div class="row header-row">
+      <div>Campaign</div>
+      <div>Status</div>
+      <div>Posts</div>
+      <div>Total views</div>
+      <div>Created</div>
+      <div></div>
+    </div>
+    <div id="campaign-rows"></div>
+  </div>
+</main>
+
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <h3>New campaign</h3>
+    <div id="create-error"></div>
+    <label for="campaign-name">Campaign name</label>
+    <input type="text" id="campaign-name" placeholder="Million Dollar Minion">
+    <label for="campaign-artist">Artist</label>
+    <input type="text" id="campaign-artist" placeholder="Yeat">
+    <div class="modal-actions">
+      <button class="secondary" onclick="closeModal()">Cancel</button>
+      <button onclick="createCampaign()" id="create-btn">Create campaign</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let campaigns = [];
+let postCounts = {};
+
+function fmt(n) {
+  if (n == null || isNaN(n)) return '-';
+  if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+  return String(n);
+}
+
+function timeAgo(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return hours + 'h ago';
+  const days = Math.floor(hours / 24);
+  return days + 'd ago';
+}
+
+async function loadCampaigns() {
+  try {
+    const res = await fetch('/api/campaigns');
+    campaigns = await res.json();
+    document.getElementById('status').textContent = '';
+
+    // Fetch post data for each campaign to get counts + total views
+    await Promise.all(campaigns.map(async c => {
+      try {
+        const r = await fetch(`/api/campaigns/${c.id}/posts`);
+        const data = await r.json();
+        postCounts[c.id] = {
+          count: data.posts.length,
+          totalViews: data.posts.reduce((sum, p) => sum + (p.views || 0), 0)
+        };
+      } catch (e) {
+        postCounts[c.id] = { count: 0, totalViews: 0 };
+      }
+    }));
+
+    render();
+  } catch (e) {
+    document.getElementById('status').textContent = 'Could not reach the server. Is app.py running?';
+  }
+}
+
+function render() {
+  const countEl = document.getElementById('campaign-count');
+  countEl.textContent = campaigns.length === 0
+    ? 'No campaigns yet'
+    : `${campaigns.length} campaign${campaigns.length === 1 ? '' : 's'}`;
+
+  const rowsEl = document.getElementById('campaign-rows');
+
+  if (campaigns.length === 0) {
+    rowsEl.innerHTML = '<div class="empty">Start your first campaign.<br><span style="font-size:13px;">Create one, then paste in TikTok links to track.</span></div>';
+    return;
+  }
+
+  rowsEl.innerHTML = campaigns.map(c => {
+    const stats = postCounts[c.id] || { count: 0, totalViews: 0 };
+    const isActive = c.status === 'In Progress';
+    return `
+      <div class="row" onclick="window.location.href='/campaign/${c.id}'">
+        <div>
+          <div class="campaign-name">${escapeHtml(c.name)}</div>
+          <div class="campaign-artist">${escapeHtml(c.artist || '')}</div>
+        </div>
+        <div>
+          <span class="pill ${isActive ? 'active' : 'neutral'}">
+            <span class="dot"></span>${escapeHtml(c.status)}
+          </span>
+        </div>
+        <div class="cell-num">${stats.count}</div>
+        <div class="cell-num">${fmt(stats.totalViews)}</div>
+        <div class="cell-muted">${timeAgo(c.created_at)}</div>
+        <div style="text-align:right;">
+          <button onclick="event.stopPropagation(); deleteCampaign(${c.id}, '${escapeHtml(c.name).replace(/'/g, "\\'")}')" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:16px; padding:4px;" title="Delete campaign">&times;</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function deleteCampaign(id, name) {
+  if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
+  await fetch(`/api/campaigns/${id}`, { method: 'DELETE' });
+  await loadCampaigns();
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function openModal() {
+  document.getElementById('modal-overlay').classList.add('open');
+  document.getElementById('create-error').textContent = '';
+  document.getElementById('campaign-name').value = '';
+  document.getElementById('campaign-artist').value = '';
+  document.getElementById('campaign-name').focus();
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+async function createCampaign() {
+  const name = document.getElementById('campaign-name').value.trim();
+  const artist = document.getElementById('campaign-artist').value.trim();
+  const btn = document.getElementById('create-btn');
+  const errEl = document.getElementById('create-error');
+
+  if (!name) {
+    errEl.textContent = 'Campaign name is required.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+  errEl.textContent = '';
+
+  try {
+    const res = await fetch('/api/campaigns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, artist })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Something went wrong.';
+    } else {
+      closeModal();
+      await loadCampaigns();
+    }
+  } catch (e) {
+    errEl.textContent = 'Could not reach the server.';
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Create campaign';
+}
+
+document.getElementById('modal-overlay').addEventListener('click', (e) => {
+  if (e.target.id === 'modal-overlay') closeModal();
+});
+
+async function loadSummary() {
+  try {
+    const res = await fetch('/api/summary');
+    const data = await res.json();
+    const card = document.getElementById('summary-card');
+
+    if (data.ai_summary) {
+      document.getElementById('summary-text').textContent = data.ai_summary;
+    } else {
+      document.getElementById('summary-text').textContent =
+        `${fmt(data.total_views)} total views across ${data.campaigns.length} campaign${data.campaigns.length === 1 ? '' : 's'}.`;
+    }
+
+    document.getElementById('summary-stats').innerHTML = `
+      <div class="summary-stat"><strong>${fmt(data.total_views)}</strong><br>total views</div>
+      <div class="summary-stat"><strong>${data.total_posts}</strong><br>posts tracked</div>
+      <div class="summary-stat"><strong>${data.new_posts_24h}</strong><br>added in 24h</div>
+    `;
+    card.style.display = 'block';
+  } catch (e) {
+    // Fail silently — summary is a nice-to-have, not core functionality
+  }
+}
+
+loadCampaigns();
+loadSummary();
+</script>
+
+</body>
+</html>
