@@ -6,6 +6,7 @@ It should always match the real function names inside client/parsers/service.
 
 No business logic belongs here.
 """
+from . import api
 
 from .client import (
     TikAPIClient,
