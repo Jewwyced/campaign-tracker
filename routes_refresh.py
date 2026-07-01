@@ -14,7 +14,7 @@ Known limitations (acceptable for now):
   - If the ingestion_lock row is missing (e.g. fresh DB + failed migration),
     rowcount=0 will be misreported as "already running" rather than "row missing."
 """
-import time
+
 import logging
 from flask import Blueprint, jsonify
 from ingestion import api as ingestion
@@ -58,8 +58,7 @@ def refresh():
             "reason": "ingestion already running",
             "locked_since": str(row["locked_at"]) if row else None,
         }), 429
-
-    time.sleep(10)
+    
     try:
         with db() as conn:
             with conn.cursor() as c:
