@@ -22,7 +22,7 @@ knowing anything changed.
 """
 
 import os
-from ingestion_client import tikapi
+from .client import tikapi
 
 
 # ── Provider interface ────────────────────────────────────────────────────────
