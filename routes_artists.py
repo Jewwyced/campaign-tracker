@@ -6,7 +6,7 @@ combined stats, and follower growth over time. Independent of Songs/Campaigns.
 """
 
 from flask import Blueprint, jsonify, request, render_template_string
-import ingestion
+from ingestion import api as ingestion
 from db import db
 
 artists_bp = Blueprint("artists", __name__)

@@ -8,7 +8,7 @@ some data and routes still depend on this simpler shape.
 """
 
 from flask import Blueprint, jsonify, request
-import ingestion
+from ingestion import api as ingestion
 from db import db
 
 fan_tracker_bp = Blueprint("fan_tracker", __name__)

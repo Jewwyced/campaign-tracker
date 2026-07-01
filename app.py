@@ -13,7 +13,7 @@ from werkzeug.exceptions import HTTPException
 import traceback
 
 from db import db
-import ingestion
+from ingestion import api as ingestion
 
 app = Flask(__name__)
 ingestion.set_quota_db_factory(db)

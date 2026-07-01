@@ -8,7 +8,7 @@ it genuinely spans every feature rather than belonging to one of them.
 """
 
 from flask import Blueprint, jsonify
-import ingestion
+from ingestion import api as ingestion
 from db import db
 
 refresh_bp = Blueprint("refresh", __name__)
