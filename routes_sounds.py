@@ -15,28 +15,21 @@ sounds_bp = Blueprint("sounds", __name__)
 
 parse_tiktok_url = ingestion.parse_tiktok_url
 get_sound_id_from_post = ingestion.get_sound_id_from_post
-fetch_sound_info = ingestion.fetch_sound_info
-fetch_sound_posts = ingestion.fetch_sound_posts
-search_sounds_by_name = ingestion.search_sounds_by_name
-
+fetch_sound_posts = ingestion.get_sound_posts
+search_sounds_by_name = ingestion.search_sounds
 
 def get_sound_dashboard(sound_id, fallback_title=None):
-    """Given a sound ID, fetch its info + posts in one bundle."""
-    info = fetch_sound_info(sound_id)
+    info = ingestion.get_sound_info(sound_id)
     if not info:
         return None
 
-    music_info = info.get("musicInfo", info)
-    music = music_info.get("music", {})
-    stats = music_info.get("stats", {})
-
-    posts = fetch_sound_posts(sound_id, max_results=60)
+    posts = ingestion.get_sound_posts(sound_id, max_results=60)
 
     return {
         "sound_id": sound_id,
-        "title": music.get("title", fallback_title or "Unknown sound"),
-        "author": music.get("authorName", ""),
-        "video_count": stats.get("videoCount"),
+        "title": info.get("title", fallback_title or "Unknown sound"),
+        "author": info.get("author", ""),
+        "video_count": info.get("video_count"),
         "posts": posts,
     }
 
