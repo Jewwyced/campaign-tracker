@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Dashboard</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface-1: #f7f7f8;
+    --surface-2: #f0f0f2;
+    --border: #e4e4e7;
+    --border-accent: #185FA5;
+    --text-primary: #18181b;
+    --text-secondary: #52525b;
+    --text-muted: #a1a1aa;
+    --success-text: #1D9E75;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  header .nav a {
+    font-size: 13px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    margin-right: 16px;
+  }
+  header .nav a.current { color: var(--text-primary); font-weight: 500; }
+  header .nav a:hover { color: var(--text-primary); }
+
+  main {
+    padding: 28px 32px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .brand-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+  .brand-icon {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    background: #185FA5;
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-size: 16px; font-weight: 600;
+  }
+  .page-title { font-size: 24px; font-weight: 500; }
+  .page-subtitle { font-size: 14px; color: var(--text-muted); margin-bottom: 24px; }
+
+  .hero-card {
+    background: linear-gradient(135deg, #0C447C 0%, #185FA5 100%);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .hero-label {
+    font-size: 12px;
+    color: rgba(255,255,255,0.7);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 500;
+  }
+  .hero-number {
+    font-size: 48px;
+    font-weight: 500;
+    margin-top: 6px;
+    color: white;
+  }
+  .hero-delta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 13px;
+    color: #C0DD97;
+    font-weight: 500;
+  }
+  .hero-chart {
+    margin-top: 1.25rem;
+    height: 70px;
+    position: relative;
+  }
+
+  .stat-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 1.5rem;
+  }
+  .stat-box {
+    background: var(--surface-1);
+    border-radius: 12px;
+    padding: 16px;
+    border-left: 3px solid var(--accent-color);
+  }
+  .stat-box .label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+  .stat-box .value { font-size: 28px; font-weight: 500; margin-top: 4px; }
+
+  .section-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 10px;
+  }
+  .mock-badge {
+    display: inline-block;
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--surface-1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 4px;
+    vertical-align: middle;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .card-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 1.5rem;
+  }
+  .nav-card {
+    background: var(--surface-2);
+    border: 0.5px solid var(--border);
+    border-radius: 14px;
+    padding: 1.25rem;
+    cursor: pointer;
+    transition: border-color .15s, transform .15s;
+  }
+  .nav-card:hover { border-color: var(--border-accent); transform: translateY(-2px); }
+  .nav-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .nav-card .icon-box {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+  .nav-card .arrow { font-size: 16px; color: var(--text-muted); }
+  .nav-card .title { font-size: 16px; font-weight: 500; margin-top: 14px; }
+  .nav-card .big-value { font-size: 30px; font-weight: 500; margin-top: 4px; color: var(--success-text); }
+  .nav-card .fact { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  .activity-card {
+    background: var(--surface-2);
+    border: 0.5px solid var(--border);
+    border-radius: 14px;
+    padding: 0.25rem 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .activity-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 0;
+    border-bottom: 0.5px solid var(--border);
+    font-size: 13px;
+  }
+  .activity-row:last-child { border-bottom: none; }
+  .activity-row .time { margin-left: auto; color: var(--text-muted); font-size: 12px; }
+
+  .leaderboard-card {
+    background: var(--surface-2);
+    border: 0.5px solid var(--border);
+    border-radius: 14px;
+    padding: 0.25rem 1rem;
+  }
+  .lb-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 0.5px solid var(--border);
+  }
+  .lb-row:last-child { border-bottom: none; }
+  .lb-rank {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 500;
+    flex-shrink: 0;
+  }
+  .lb-name { font-size: 13px; font-weight: 500; flex: 1; }
+  .lb-views { font-size: 13px; color: var(--text-secondary); }
+  .lb-sub { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+
+  .standout-layout {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 16px;
+  }
+  .embed-card {
+    background: var(--surface-2);
+    border: 0.5px solid var(--border);
+    border-radius: 14px;
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+  }
+  .embed-empty {
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+  }
+
+  .spend-card {
+    background: var(--surface-2);
+    border: 0.5px solid var(--border);
+    border-radius: 14px;
+    padding: 1.25rem;
+    cursor: pointer;
+    transition: border-color .15s, transform .15s;
+  }
+  .spend-card:hover { border-color: var(--border-accent); transform: translateY(-2px); }
+
+  #status { font-size: 13px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="nav">
+    <a href="/" class="current">Dashboard</a>
+    <a href="/campaigns">Campaigns</a>
+    <a href="/songs">Songs</a>
+    <a href="/artists">Artists</a>
+    <a href="/sounds">Sound lookup</a>
+  </div>
+</header>
+
+<main>
+  <div class="brand-row">
+    <div class="brand-icon">C</div>
+    <div class="page-title">Capitol tracker</div>
+  </div>
+  <div class="page-subtitle" id="page-subtitle">Loading...</div>
+
+  <div id="status"></div>
+
+  <div id="content" style="display:none;">
+    <div class="hero-card">
+      <div class="hero-label">Total views this week</div>
+      <div class="hero-number" id="hero-number">0</div>
+      <div class="hero-delta" id="hero-delta" style="display:none;">
+        <span>&#8599;</span><span id="hero-delta-text"></span>
+      </div>
+      <div class="hero-chart"><canvas id="trendChart"></canvas></div>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat-box" style="--accent-color:#185FA5;"><div class="label">Campaigns</div><div class="value" id="stat-campaigns">-</div></div>
+      <div class="stat-box" style="--accent-color:#534AB7;"><div class="label">Artists</div><div class="value" id="stat-artists">-</div></div>
+      <div class="stat-box" style="--accent-color:#0F6E56;"><div class="label">Posts this week</div><div class="value" id="stat-posts">-</div></div>
+    </div>
+
+    <div class="card-row">
+      <div class="nav-card" onclick="window.location.href='/campaigns'">
+        <div class="nav-card-top">
+          <div class="icon-box" style="background:#E6F1FB; color:#0C447C;">&#9650;</div>
+          <div class="arrow">&#8594;</div>
+        </div>
+        <div class="title">Campaigns</div>
+        <div class="big-value" id="campaigns-big">-</div>
+        <div class="fact" id="campaigns-fact">-</div>
+      </div>
+      <div class="nav-card" onclick="window.location.href='/artists'">
+        <div class="nav-card-top">
+          <div class="icon-box" style="background:#EEEDFE; color:#3C3489;">&#128101;</div>
+          <div class="arrow">&#8594;</div>
+        </div>
+        <div class="title">Artists</div>
+        <div class="big-value" id="artists-big">-</div>
+        <div class="fact" id="artists-fact">-</div>
+      </div>
+    </div>
+
+    <div class="section-label">Recent activity<span class="mock-badge">mock</span></div>
+    <div class="activity-card">
+      <div class="activity-row">
+        <span>&#128293;</span>
+        <div><strong>@onlyftc</strong> posted in Million Dollar Minion</div>
+        <div class="time">2h ago</div>
+      </div>
+      <div class="activity-row">
+        <span style="color:#1D9E75;">&#8599;</span>
+        <div><strong>Beck</strong> gained 47 followers</div>
+        <div class="time">5h ago</div>
+      </div>
+      <div class="activity-row">
+        <span style="color:#534AB7;">&#9834;</span>
+        <div>New sound search: "Drive by Incubus"</div>
+        <div class="time">1d ago</div>
+      </div>
+    </div>
+
+    <div class="section-label">Standout creators</div>
+    <div id="standout-creators-container"></div>
+
+    <div style="margin-top:1.5rem;"></div>
+    <div class="spend-card" onclick="alert('Creator payment tracking is a planned feature — these numbers are placeholders for now.')">
+      <div class="nav-card-top">
+        <div style="font-size:15px; font-weight:500;">Total creator spend<span class="mock-badge">mock</span></div>
+        <div class="arrow">&#8594;</div>
+      </div>
+      <div class="fact" id="spend-fact" style="margin-top:8px; font-size:13px; color:var(--text-secondary);">-</div>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+function fmt(n) {
+  if (n == null || isNaN(n)) return '-';
+  if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+  return String(n);
+}
+
+function animateNumber(el, target, duration) {
+  duration = duration || 900;
+  const steps = 40;
+  const stepTime = duration / steps;
+  const increment = target / steps;
+  let current = 0;
+  let i = 0;
+  const timer = setInterval(() => {
+    i++;
+    current += increment;
+    if (i >= steps) {
+      current = target;
+      clearInterval(timer);
+    }
+    el.textContent = Math.round(current).toLocaleString();
+  }, stepTime);
+}
+
+async function load() {
+  try {
+    const res = await fetch('/api/dashboard');
+    const data = await res.json();
+
+    document.getElementById('page-subtitle').textContent =
+      `Live across ${data.active_campaigns} campaign${data.active_campaigns === 1 ? '' : 's'}, ${data.artist_count} artist${data.artist_count === 1 ? '' : 's'}`;
+
+    animateNumber(document.getElementById('hero-number'), data.total_views);
+
+    if (data.trend.length >= 2) {
+      const first = data.trend[0].views || 0;
+      const last = data.trend[data.trend.length - 1].views || 0;
+      if (first > 0) {
+        const pctChange = Math.round(((last - first) / first) * 100);
+        document.getElementById('hero-delta-text').textContent = `${pctChange >= 0 ? '+' : ''}${pctChange}% vs start of period`;
+        document.getElementById('hero-delta').style.display = 'flex';
+      }
+    }
+
+    document.getElementById('stat-campaigns').textContent = data.active_campaigns;
+    document.getElementById('stat-artists').textContent = data.artist_count;
+    document.getElementById('stat-posts').textContent = data.posts_added_7d;
+
+    document.getElementById('campaigns-big').textContent = data.top_campaign && data.top_campaign.views > 0
+      ? fmt(data.top_campaign.views) : '-';
+    document.getElementById('campaigns-fact').textContent = data.top_campaign && data.top_campaign.views > 0
+      ? `${data.top_campaign.name}, top performer`
+      : 'No campaign data yet';
+
+    document.getElementById('artists-big').textContent = data.top_artist
+      ? `${data.top_artist.followers_delta >= 0 ? '+' : ''}${data.top_artist.followers_delta}` : '-';
+    document.getElementById('artists-fact').textContent = data.top_artist
+      ? `${data.top_artist.name}, fastest growing today`
+      : 'Add an artist to see growth';
+
+    document.getElementById('spend-fact').textContent =
+      `$${data.spend.this_week.toLocaleString()} this week, ${data.spend.creators_paid} creators paid — highest: @${data.spend.top_creator.username} ($${data.spend.top_creator.amount} for ${data.spend.top_creator.videos} videos)`;
+
+    renderTrend(data.trend);
+    renderStandoutCreators(data.standout_creators || []);
+
+    document.getElementById('status').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+  } catch (e) {
+    document.getElementById('status').textContent = 'Could not reach the server.';
+  }
+}
+
+async function renderStandoutCreators(creators) {
+  const container = document.getElementById('standout-creators-container');
+  if (creators.length === 0) {
+    container.innerHTML = '<div class="leaderboard-card"><div class="empty" style="color:var(--text-muted); font-size:13px; text-align:center; padding:24px 0;">No campaign posts yet.</div></div>';
+    return;
+  }
+
+  const rankColors = [
+    { bg: '#E6F1FB', text: '#0C447C' },
+    { bg: '#EEEDFE', text: '#3C3489' },
+    { bg: '#FAEEDA', text: '#854F0B' },
+  ];
+
+  const listHtml = `
+    <div class="leaderboard-card">
+      ${creators.map((c, i) => `
+        <div class="lb-row">
+          <div class="lb-rank" style="background:${rankColors[i].bg}; color:${rankColors[i].text};">${i + 1}</div>
+          <div>
+            <div class="lb-name">@${escapeHtml(c.username)}</div>
+            <div class="lb-sub">${c.video_count} video${c.video_count === 1 ? '' : 's'}</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="lb-views">${fmt(c.total_views)} views</div>
+            <div class="lb-sub">${fmt(c.total_likes)} likes</div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  container.innerHTML = `
+    <div class="standout-layout">
+      <div class="embed-card" id="embed-card"><div class="embed-empty">Loading video...</div></div>
+      ${listHtml}
+    </div>
+  `;
+
+  // Load the real TikTok embed for the #1 creator's top post
+  const topCreator = creators[0];
+  if (topCreator.top_post) {
+    const videoUrl = `https://www.tiktok.com/@${topCreator.top_post.username}/video/${topCreator.top_post.post_id}`;
+    try {
+      const res = await fetch(`/api/oembed?url=${encodeURIComponent(videoUrl)}`);
+      const data = await res.json();
+      const embedCard = document.getElementById('embed-card');
+      if (data.html) {
+        embedCard.innerHTML = data.html;
+        // TikTok's embed script needs to run after the blockquote is in the DOM
+        if (!window.tiktokEmbedScriptLoaded) {
+          const script = document.createElement('script');
+          script.src = 'https://www.tiktok.com/embed.js';
+          document.body.appendChild(script);
+          window.tiktokEmbedScriptLoaded = true;
+        } else if (window.tiktokEmbed && window.tiktokEmbed.lib) {
+          window.tiktokEmbed.lib.render([embedCard.querySelector('.tiktok-embed')]);
+        }
+      } else {
+        embedCard.innerHTML = '<div class="embed-empty">Could not load video preview.</div>';
+      }
+    } catch (e) {
+      document.getElementById('embed-card').innerHTML = '<div class="embed-empty">Could not load video preview.</div>';
+    }
+  }
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+
+function renderTrend(trend) {
+  const ctx = document.getElementById('trendChart');
+  const values = trend.map(t => t.views);
+  if (values.length < 2) {
+    ctx.parentElement.innerHTML = '<div style="color:rgba(255,255,255,0.6); font-size:13px; padding-top:24px; text-align:center;">Not enough data yet — check back after a few days.</div>';
+    return;
+  }
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: trend.map(t => t.date),
+      datasets: [{
+        data: values,
+        borderColor: '#ffffff',
+        backgroundColor: 'rgba(255,255,255,0.12)',
+        fill: true,
+        tension: 0.35,
+        pointRadius: 0,
+        borderWidth: 2.5,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { display: false }, y: { display: false } }
+    }
+  });
+}
+
+load();
+</script>
+
+</body>
+</html>
