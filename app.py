@@ -167,6 +167,7 @@ def run_schema_migrations():
                 ALTER TABLE songs ADD COLUMN IF NOT EXISTS isrc TEXT;
                 ALTER TABLE songs DROP COLUMN IF EXISTS campaign_artist_id;
                 ALTER TABLE sounds ADD COLUMN IF NOT EXISTS current_video_count INT;
+                ALTER TABLE sounds ADD COLUMN IF NOT EXISTS last_ingested_at TIMESTAMP;
             """)
         conn.commit()
 
