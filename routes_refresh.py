@@ -13,6 +13,12 @@ Known limitations (acceptable for now):
     a single-worker deployment, worth improving if multiple workers are added.
   - If the ingestion_lock row is missing (e.g. fresh DB + failed migration),
     rowcount=0 will be misreported as "already running" rather than "row missing."
+
+Column naming note:
+  sounds.sound_id = the TikTok sound ID (string like "7652515059767282462")
+  sounds.id       = the database primary key (integer)
+  The tuple (sound_db_id, song_id, tiktok_sound_id) maps to (id, song_id, sound_id)
+  from the sounds table. This is verified correct against ingestion.ingest_sound().
 """
 
 import logging
@@ -27,6 +33,7 @@ LOCK_TIMEOUT_MINUTES = 30
 
 @refresh_bp.route("/api/refresh", methods=["POST"])
 def refresh():
+    # Atomic lock acquisition — single UPDATE prevents race conditions.
     with db() as conn:
         with conn.cursor() as c:
             c.execute("""
@@ -66,20 +73,32 @@ def refresh():
                 c.execute("SELECT username FROM roster_accounts")
                 roster_usernames = [r["username"] for r in c.fetchall()]
 
+                # LEFT JOIN to determine freshness in SQL.
+                # COALESCE handles NULL last_ingested_at (never ingested) as not fresh.
+                # sound_id in the sounds table is the TikTok sound ID (string).
                 c.execute("""
                     SELECT
                         c.id AS campaign_id,
                         c.attached_sound_id,
                         s.id AS sound_db_id,
-                        (s.last_ingested_at > NOW() - INTERVAL '6 hours') AS sound_is_fresh
+                        COALESCE(
+                            s.last_ingested_at > NOW() - INTERVAL '6 hours',
+                            FALSE
+                        ) AS sound_is_fresh
                     FROM campaigns c
                     LEFT JOIN sounds s ON s.sound_id = c.attached_sound_id
                     WHERE c.attached_sound_id IS NOT NULL
                 """)
                 attached_sounds = [dict(r) for r in c.fetchall()]
 
-                c.execute("SELECT id, song_id, sound_id FROM sounds WHERE status='approved'")
-                song_sounds = [(r["id"], r["song_id"], r["sound_id"]) for r in c.fetchall()]
+                # sound_id here is the TikTok sound ID — confirmed correct for
+                # ingestion.ingest_sound() which expects tiktok_sound_id.
+                c.execute("""
+                    SELECT id AS sound_db_id, song_id, sound_id AS tiktok_sound_id
+                    FROM sounds
+                    WHERE status = 'approved'
+                """)
+                song_sounds = [dict(r) for r in c.fetchall()]
 
         for username in artists:
             ingestion.ingest_fan_account(db, username)
@@ -91,20 +110,29 @@ def refresh():
             ingestion.ingest_roster_account(db, username)
 
         for s in attached_sounds:
-            print(f"  [refresh] campaign row: {s}", flush=True)
-            # Skip if this sound is already tracked by the Songs pipeline and fresh.
-            # The Songs pipeline owns data fetching; campaigns own relationships.
-            if (
-                s["sound_db_id"] is not None
-                and s["sound_is_fresh"]
-            ):
+            # Skip if sound is already tracked and fresh — Songs pipeline owns it.
+            # sound_db_id is None when no matching sounds row exists (e.g. Back Home).
+            if s["sound_db_id"] is not None and s["sound_is_fresh"]:
                 continue
             ingestion.ingest_campaign_attached_sound(
                 db, s["campaign_id"], s["attached_sound_id"], max_results=30
             )
 
-        for sound_db_id, song_id, tiktok_sound_id in song_sounds:
-            ingestion.ingest_sound(db, song_id, sound_db_id, tiktok_sound_id, max_results=30)
+        skipped = 0
+        ingested = 0
+        for s in song_sounds:
+            result = ingestion.ingest_sound(
+                db, s["song_id"], s["sound_db_id"], s["tiktok_sound_id"], max_results=30
+            )
+            if result.get("source") == "cache":
+                skipped += 1
+            else:
+                ingested += 1
+
+        logging.info(
+            f"[refresh] sounds: {len(song_sounds)} checked, "
+            f"{skipped} skipped (fresh), {ingested} processed"
+        )
 
         return jsonify({"ok": True})
 
@@ -113,11 +141,13 @@ def refresh():
         return jsonify({"ok": False, "error": str(e)}), 500
 
     finally:
+        # Release only if we still own the lock — avoids accidental unlock
+        # if a future multi-worker setup introduces concurrent refresh attempts.
         with db() as conn:
             with conn.cursor() as c:
                 c.execute("""
                     UPDATE ingestion_lock
                     SET locked = FALSE, locked_at = NULL, locked_by = NULL
-                    WHERE id = 1
+                    WHERE id = 1 AND locked_by = 'refresh'
                 """)
             conn.commit()
