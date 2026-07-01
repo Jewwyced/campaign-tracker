@@ -297,7 +297,7 @@ async function addSong() {
   statusEl.textContent = 'Finding sounds for this song — this can take a moment...';
 
   try {
-    const res = await fetch(`/api/campaigns/${campaignId}/songs`, {
+    const res = await fetch(`/api/songs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name })
