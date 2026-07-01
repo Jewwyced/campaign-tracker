@@ -14,14 +14,14 @@ Why this exists:
     only ever see a stable surface. Internal changes never leak outward.
 """
 
-from ingestion.client import tikapi, set_quota_db_factory
-from ingestion.parsers import (
+from .client import tikapi, set_quota_db_factory
+from .parsers import (
     parse_tiktok_url,
     parse_sound_id_from_video,
     parse_sound_info,
     parse_posts_from_music_page,
 )
-from ingestion.service import (
+from .service import (
     discover_sounds,
     create_sound,
     ingest_sound,
