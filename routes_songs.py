@@ -40,8 +40,8 @@ def songs_collection():
                     """, (artist,))
                     campaign_artist_id = c.fetchone()["id"]
                 c.execute("""
-                    INSERT INTO songs (name, artist, campaign_artist_id) VALUES (%s,%s,%s) RETURNING id
-                """, (name, artist, campaign_artist_id))
+                   INSERT INTO songs (name, artist) VALUES (%s,%s) RETURNING id 
+                """, (name, artist))
                 song_id = c.fetchone()["id"]
             conn.commit()
 
