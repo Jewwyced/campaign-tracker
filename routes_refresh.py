@@ -58,7 +58,7 @@ def refresh():
             "reason": "ingestion already running",
             "locked_since": str(row["locked_at"]) if row else None,
         }), 429
-    
+
     try:
         with db() as conn:
             with conn.cursor() as c:
