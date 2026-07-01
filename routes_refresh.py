@@ -22,16 +22,11 @@ from db import db
 
 refresh_bp = Blueprint("refresh", __name__)
 
-# Locks older than this are considered stale and will be overridden.
-# Prevents a crash from permanently halting ingestion.
 LOCK_TIMEOUT_MINUTES = 30
 
 
 @refresh_bp.route("/api/refresh", methods=["POST"])
 def refresh():
-    # Atomic lock acquisition — single UPDATE prevents race conditions.
-    # Two simultaneous requests can't both see locked=FALSE because only
-    # one UPDATE will match the WHERE clause and return rowcount=1.
     with db() as conn:
         with conn.cursor() as c:
             c.execute("""
@@ -64,23 +59,50 @@ def refresh():
             with conn.cursor() as c:
                 c.execute("SELECT username FROM artists")
                 artists = [r["username"] for r in c.fetchall()]
+
                 c.execute("SELECT DISTINCT post_id, username FROM campaign_links")
                 campaign_posts = [(r["post_id"], r["username"]) for r in c.fetchall()]
+
                 c.execute("SELECT username FROM roster_accounts")
                 roster_usernames = [r["username"] for r in c.fetchall()]
-                c.execute("SELECT id, attached_sound_id FROM campaigns WHERE attached_sound_id IS NOT NULL")
-                attached_sounds = [(r["id"], r["attached_sound_id"]) for r in c.fetchall()]
+
+                c.execute("""
+                    SELECT
+                        c.id AS campaign_id,
+                        c.attached_sound_id,
+                        s.id AS sound_db_id,
+                        (s.last_ingested_at > NOW() - INTERVAL '6 hours') AS sound_is_fresh
+                    FROM campaigns c
+                    LEFT JOIN sounds s ON s.sound_id = c.attached_sound_id
+                    WHERE c.attached_sound_id IS NOT NULL
+                """)
+                attached_sounds = [dict(r) for r in c.fetchall()]
+
                 c.execute("SELECT id, song_id, sound_id FROM sounds WHERE status='approved'")
                 song_sounds = [(r["id"], r["song_id"], r["sound_id"]) for r in c.fetchall()]
 
         for username in artists:
             ingestion.ingest_fan_account(db, username)
+
         for post_id, username in campaign_posts:
             ingestion.ingest_single_post(db, post_id, username)
+
         for username in roster_usernames:
             ingestion.ingest_roster_account(db, username)
-        for campaign_id, sound_id in attached_sounds:
-            ingestion.ingest_campaign_attached_sound(db, campaign_id, sound_id, max_results=30)
+
+        for s in attached_sounds:
+            print(f"  [refresh] campaign row: {s}", flush=True)
+            # Skip if this sound is already tracked by the Songs pipeline and fresh.
+            # The Songs pipeline owns data fetching; campaigns own relationships.
+            if (
+                s["sound_db_id"] is not None
+                and s["sound_is_fresh"]
+            ):
+                continue
+            ingestion.ingest_campaign_attached_sound(
+                db, s["campaign_id"], s["attached_sound_id"], max_results=30
+            )
+
         for sound_db_id, song_id, tiktok_sound_id in song_sounds:
             ingestion.ingest_sound(db, song_id, sound_db_id, tiktok_sound_id, max_results=30)
 
@@ -91,7 +113,6 @@ def refresh():
         return jsonify({"ok": False, "error": str(e)}), 500
 
     finally:
-        # Always release the lock — even if something crashes mid-refresh.
         with db() as conn:
             with conn.cursor() as c:
                 c.execute("""
