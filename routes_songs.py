@@ -7,12 +7,8 @@ has many Sounds (Original, Sped Up, Remix, etc), each Sound has many Posts.
 """
 
 from flask import Blueprint, jsonify, request, render_template_string
-from ingestion import (
-    discover_sounds,
-    create_sound,
-    ingest_sound,
-    parse_sound_info,
-)
+from ingestion import api as ingestion
+from services import song_catalog 
 from db import db
 
 songs_bp = Blueprint("songs", __name__)
@@ -48,7 +44,7 @@ def songs_collection():
         # Auto-discover and pull in every distinct sound found for this song —
         # no manual searching, no approval step. User can delete bad matches after the fact.
         search_query = f"{name} {artist}".strip()
-        results = ingestion.discover_and_ingest_sounds(db, song_id, search_query, max_results=30)
+        results = ingestion.ingest_song_sounds(db, song_id, name, artist)max_results=30)
         sounds_added = [{"sound_id": r["sound_id"], "title": r["title"], "author": r["author"]} for r in results]
 
         return jsonify({"ok": True, "song_id": song_id, "sounds_found": len(sounds_added), "sounds": sounds_added})
