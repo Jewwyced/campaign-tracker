@@ -187,6 +187,8 @@ def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_res
     Note: song_id is kept for backward compatibility but is currently unused.
     """
     is_fresh, age_hours = _is_sound_fresh(db_conn_factory, sound_db_id)
+    is_fresh, age_hours = _is_sound_fresh(db_conn_factory, sound_db_id)
+    _log(f"cache check sound={sound_db_id} fresh={is_fresh} age={age_hours}")
     if is_fresh:
         _log(f"sound {sound_db_id} is fresh ({age_hours:.1f}h old) — skipping provider pipeline")
         return {
