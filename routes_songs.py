@@ -44,7 +44,7 @@ def songs_collection():
         # Auto-discover and pull in every distinct sound found for this song —
         # no manual searching, no approval step. User can delete bad matches after the fact.
         search_query = f"{name} {artist}".strip()
-        results = ingestion.ingest_song_sounds(db, song_id, name, artist)max_results=30)
+        results = ingestion.ingest_song_sounds(db, song_id, name, artist)
         sounds_added = [{"sound_id": r["sound_id"], "title": r["title"], "author": r["author"]} for r in results]
 
         return jsonify({"ok": True, "song_id": song_id, "sounds_found": len(sounds_added), "sounds": sounds_added})
