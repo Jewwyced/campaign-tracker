@@ -1,15 +1,15 @@
 """
-ingestion_service.py — Layer 3: service / orchestration.
+ingestion/service.py — Layer 3: service / orchestration.
 
-Owns all business logic and database writes. Calls ingestion_parsers.py
-to get clean data, then decides what to write to Neon and what to return.
+Owns all business logic and database writes. Calls parsers to get clean
+data, then decides what to write to Neon and what to return.
 
 This file decides WHAT happens — which rows to insert/upsert, what to
 return to callers, what counts as success or failure. It does not know
-or care how TikAPI works internally (that's ingestion_client.py) or how
-to parse its responses (that's ingestion_parsers.py).
+or care how providers work internally (that's providers.py) or how to
+parse their responses (that's parsers.py).
 
-These are the functions external callers use:
+Public functions:
   - discover_sounds(query)
   - create_sound(db_conn_factory, song_id, sound)
   - ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id)
@@ -19,12 +19,21 @@ These are the functions external callers use:
   - ingest_fan_account(db_conn_factory, username)
   - ingest_single_post(db_conn_factory, post_id, username)
   - ingest_campaign_attached_sound(db_conn_factory, campaign_id, tiktok_sound_id)
+
+Known deferred improvements:
+  - song_id parameter on ingest_sound() is now unused — legacy, kept for
+    backward compatibility with existing callers
+  - _update_sound_video_count() and _ingest_sound_posts() still combine
+    fetching, parsing, and persistence — acceptable for now, worth splitting
+    when they grow more complex
+  - Cache freshness only implemented for sounds — roster accounts, fan
+    accounts, and single posts still always hit the provider pipeline
+  - Result objects are not yet standardized across all functions — ingest_sound
+    returns a rich dict, other functions return True/False or a list
 """
 
-from datetime import date
-
-from .client import tikapi
-
+from datetime import date, datetime, timezone
+from .providers import default_provider as provider
 from .parsers import (
     parse_sounds_from_search,
     parse_sound_info,
@@ -34,6 +43,14 @@ from .parsers import (
     parse_single_post,
 )
 
+# ── Constants ─────────────────────────────────────────────────────────────────
+
+SOUND_FRESHNESS_HOURS = 6  # skip re-ingestion if sound was ingested within this window
+
+SOURCE_CACHE    = "cache"
+SOURCE_TIKAPI   = "tikapi"
+SOURCE_FALLBACK = "fallback"
+
 
 def _log(msg):
     print(f"  [ingestion] {msg}", flush=True)
@@ -41,9 +58,36 @@ def _log(msg):
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
+def _is_sound_fresh(db_conn_factory, sound_db_id):
+    """Check whether a sound's cached data is fresh enough to skip re-ingestion.
+    Returns (is_fresh, age_hours) — age_hours is None if never ingested."""
+    with db_conn_factory() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT last_ingested_at FROM sounds WHERE id=%s", (sound_db_id,))
+            row = c.fetchone()
+
+    if not row or not row["last_ingested_at"]:
+        return False, None
+
+    last_ingested = row["last_ingested_at"]
+    if last_ingested.tzinfo is None:
+        last_ingested = last_ingested.replace(tzinfo=timezone.utc)
+
+    age_hours = (datetime.now(timezone.utc) - last_ingested).total_seconds() / 3600
+    return age_hours < SOUND_FRESHNESS_HOURS, age_hours
+
+
+def _touch_sound_ingested(db_conn_factory, sound_db_id):
+    """Update last_ingested_at to now. Called after every successful ingest."""
+    with db_conn_factory() as conn:
+        with conn.cursor() as c:
+            c.execute("UPDATE sounds SET last_ingested_at=NOW() WHERE id=%s", (sound_db_id,))
+        conn.commit()
+
+
 def _update_sound_video_count(db_conn_factory, sound_db_id, tiktok_sound_id):
     """Pull a sound's true total video count and write today's snapshot."""
-    raw = tikapi.get_music_info(tiktok_sound_id)
+    raw = provider.get_sound_info(tiktok_sound_id)
     info = parse_sound_info(raw)
     if not info:
         return {"video_count_updated": False, "error": "music/info call failed — see logs above for status code"}
@@ -66,13 +110,11 @@ def _update_sound_video_count(db_conn_factory, sound_db_id, tiktok_sound_id):
 
 
 def _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_results):
-    """Pull a curated sample of posts for a sound and save them to Neon.
-    Owns the pagination loop — calls the client for each page, passes raw
-    JSON to parse_posts_from_music_page, writes clean posts to Neon."""
+    """Pull a curated sample of posts for a sound and save them to Neon."""
     all_posts = []
     cursor = 0
     while len(all_posts) < max_results:
-        raw = tikapi.get_music_posts_page(tiktok_sound_id, cursor=cursor, count=30)
+        raw = provider.get_sound_posts_page(tiktok_sound_id, cursor=cursor, count=30)
         posts, has_more, next_cursor = parse_posts_from_music_page(raw)
         if not posts:
             break
@@ -117,14 +159,14 @@ def _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_resul
 
 def discover_sounds(query):
     """Search TikTok for sounds matching a query. No database writes."""
-    raw = tikapi.get_search_general(query)
+    raw = provider.search_sounds(query)
     sounds = parse_sounds_from_search(raw)
     _log(f"search '{query}' found {len(sounds)} distinct sounds")
     return sounds
 
 
 def create_sound(db_conn_factory, song_id, sound):
-    """Persist one discovered sound. Returns new db id, or None if it already existed."""
+    """Persist one discovered sound. Returns new db id, or None if already existed."""
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("""
@@ -139,11 +181,40 @@ def create_sound(db_conn_factory, song_id, sound):
 
 
 def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_results=30):
-    """Refresh one Sound's posts and video-count snapshot."""
-    result = {"sound_db_id": sound_db_id, "video_count_updated": False, "posts_added": 0, "error": None}
+    """Refresh one Sound's posts and video-count snapshot.
+    Checks cache first — skips the provider pipeline entirely if data is fresh.
+
+    Note: song_id is kept for backward compatibility but is currently unused.
+    """
+    is_fresh, age_hours = _is_sound_fresh(db_conn_factory, sound_db_id)
+    if is_fresh:
+        _log(f"sound {sound_db_id} is fresh ({age_hours:.1f}h old) — skipping provider pipeline")
+        return {
+            "sound_db_id": sound_db_id,
+            "video_count_updated": False,
+            "posts_added": 0,
+            "error": None,
+            "source": SOURCE_CACHE,
+            "degraded": False,
+        }
+
+    # Cache miss or stale — continue through the provider pipeline
+    result = {
+        "sound_db_id": sound_db_id,
+        "video_count_updated": False,
+        "posts_added": 0,
+        "error": None,
+        "source": SOURCE_TIKAPI,
+        "degraded": False,
+    }
     stats_result = _update_sound_video_count(db_conn_factory, sound_db_id, tiktok_sound_id)
     result.update(stats_result)
     result["posts_added"] = _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_results)
+
+    # Update timestamp so the next call can use the cache
+    if not result.get("error"):
+        _touch_sound_ingested(db_conn_factory, sound_db_id)
+
     return result
 
 
@@ -182,7 +253,7 @@ def refresh_song_sounds(db_conn_factory, song_id):
 
 def ingest_roster_account(db_conn_factory, username):
     """Pull current stats for one Artist roster account and save today's snapshot."""
-    raw = tikapi.get_check(username)
+    raw = provider.get_account(username)
     account = parse_account_stats(raw)
     if not account:
         return False
@@ -190,7 +261,7 @@ def ingest_roster_account(db_conn_factory, username):
     today = date.today()
     views_sum = likes_sum = comments_sum = shares_sum = 0
     if account["sec_uid"]:
-        raw_posts = tikapi.get_posts_by_secuid(account["sec_uid"], count=10)
+        raw_posts = provider.get_account_posts(account["sec_uid"], count=10)
         for p in parse_posts_from_user_feed(raw_posts):
             views_sum += p.get("views", 0)
             likes_sum += p.get("likes", 0)
@@ -215,7 +286,7 @@ def ingest_roster_account(db_conn_factory, username):
 
 def ingest_fan_account(db_conn_factory, username):
     """Pull stats for a plain (non-roster) tracked fan account, plus its recent posts."""
-    raw = tikapi.get_check(username)
+    raw = provider.get_account(username)
     account = parse_account_stats(raw)
     if not account:
         return False
@@ -232,7 +303,7 @@ def ingest_fan_account(db_conn_factory, username):
         conn.commit()
 
     if account["sec_uid"]:
-        raw_posts = tikapi.get_posts_by_secuid(account["sec_uid"], count=10)
+        raw_posts = provider.get_account_posts(account["sec_uid"], count=10)
         posts = parse_posts_from_user_feed(raw_posts)
         if posts:
             with db_conn_factory() as conn:
@@ -259,13 +330,12 @@ def ingest_fan_account(db_conn_factory, username):
 
 def ingest_single_post(db_conn_factory, post_id, username=None):
     """Pull/update one specific TikTok video by its post ID."""
-    raw = tikapi.get_video(post_id)
+    raw = provider.get_post(post_id)
     post = parse_single_post(raw, fallback_username=username)
     if not post:
         return False
 
     today = date.today()
-
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("""
@@ -294,7 +364,7 @@ def ingest_campaign_attached_sound(db_conn_factory, campaign_id, tiktok_sound_id
     all_posts = []
     cursor = 0
     while len(all_posts) < max_results:
-        raw = tikapi.get_music_posts_page(tiktok_sound_id, cursor=cursor, count=30)
+        raw = provider.get_sound_posts_page(tiktok_sound_id, cursor=cursor, count=30)
         posts, has_more, next_cursor = parse_posts_from_music_page(raw)
         if not posts:
             break
