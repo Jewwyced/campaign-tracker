@@ -127,6 +127,8 @@ class TikLiveAPIProvider:
         data = self._get("/search-video/", {"keyword": query, "count": 30})
         if not data:
             return None
+        
+        _log(json.dumps(data, indent=2)[:4000])
 
         videos = data.get("videos", [])
         seen_ids = set()
