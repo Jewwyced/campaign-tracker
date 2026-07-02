@@ -17,7 +17,6 @@ Add to ProviderPipeline in providers.py:
 
 import os
 import requests
-from .providers import BaseProvider
 
 TIKLIVEAPI_KEY = os.environ.get("d9ef39496d0711607eec376658918c06", "")
 BASE_URL = "https://api.tikliveapi.com"
@@ -27,7 +26,7 @@ def _log(msg):
     print(f"  [tiklive] {msg}", flush=True)
 
 
-class TikLiveAPIProvider(BaseProvider):
+class TikLiveAPIProvider:
     """TikLiveAPI implementation of BaseProvider."""
 
     def _headers(self):
