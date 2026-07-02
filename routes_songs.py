@@ -8,7 +8,6 @@ has many Sounds (Original, Sped Up, Remix, etc), each Sound has many Posts.
 
 from flask import Blueprint, jsonify, request, render_template_string
 from ingestion import api as ingestion
-from services import song_catalog 
 from db import db
 
 songs_bp = Blueprint("songs", __name__)
@@ -27,147 +26,131 @@ def songs_collection():
 
         with db() as conn:
             with conn.cursor() as c:
-                campaign_artist_id = None
-                if artist:
-                    c.execute("""
-                        INSERT INTO campaign_artists (name) VALUES (%s)
-                        ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name
-                        RETURNING id
-                    """, (artist,))
-                    campaign_artist_id = c.fetchone()["id"]
                 c.execute("""
-                   INSERT INTO songs (name, artist) VALUES (%s,%s) RETURNING id 
+                    INSERT INTO songs (name, artist) VALUES (%s,%s) RETURNING id
                 """, (name, artist))
                 song_id = c.fetchone()["id"]
             conn.commit()
 
-        # Auto-discover and pull in every distinct sound found for this song —
-        # no manual searching, no approval step. User can delete bad matches after the fact.
-        search_query = f"{name} {artist}".strip()
         results = ingestion.ingest_song_sounds(db, song_id, name, artist)
-        sounds_added = [{"sound_id": r["sound_id"], "title": r["title"], "author": r["author"]} for r in results]
-
-        return jsonify({"ok": True, "song_id": song_id, "sounds_found": len(sounds_added), "sounds": sounds_added})
+        return jsonify({
+            "ok": True,
+            "song_id": song_id,
+            "sounds_found": len(results) if results else 0
+        })
 
     with db() as conn:
         with conn.cursor() as c:
-            c.execute("SELECT * FROM songs ORDER BY created_at DESC")
-            songs = [dict(r) for r in c.fetchall()]
-            for song in songs:
-                song["created_at"] = str(song["created_at"])
-                c.execute("SELECT id FROM sounds WHERE song_id=%s", (song["id"],))
-                sound_ids = [r["id"] for r in c.fetchall()]
-                song["sound_count"] = len(sound_ids)
-                if sound_ids:
-                    c.execute("""
-                        SELECT COALESCE(SUM(views),0) as views, COUNT(*) as post_count,
-                               COUNT(DISTINCT username) as creator_count
-                        FROM posts WHERE sound_db_id = ANY(%s)
-                    """, (sound_ids,))
-                    stats = dict(c.fetchone())
-                else:
-                    stats = {"views": 0, "post_count": 0, "creator_count": 0}
-                song.update(stats)
-    return jsonify(songs)
+            c.execute("""
+                SELECT
+                    s.id, s.name, s.artist, s.created_at,
+                    COUNT(DISTINCT snd.id) as sound_count,
+                    COUNT(DISTINCT p.post_id) as post_count,
+                    COUNT(DISTINCT p.username) as creator_count,
+                    COALESCE(SUM(p.views), 0) as total_views,
+                    COALESCE(SUM(p.likes), 0) as total_likes
+                FROM songs s
+                LEFT JOIN sounds snd ON snd.song_id = s.id
+                LEFT JOIN posts p ON p.sound_db_id = snd.id
+                GROUP BY s.id
+                ORDER BY total_views DESC
+            """)
+            rows = [dict(r) for r in c.fetchall()]
+    for r in rows:
+        r["created_at"] = str(r["created_at"])
+    return jsonify(rows)
 
 
 @songs_bp.route("/api/songs/<int:song_id>/detail")
 def song_detail(song_id):
-    """Bundles everything the Song page needs: header stats + growth, top sounds,
-    top creators, and top posts (filterable by timeframe via ?window=24h|7d|all)."""
-    window = request.args.get("window", "24h")
+    window = request.args.get("window", "all")
 
     with db() as conn:
         with conn.cursor() as c:
+            # Song info
             c.execute("SELECT * FROM songs WHERE id=%s", (song_id,))
             song_row = c.fetchone()
             if not song_row:
-                return jsonify({"error": f"Song {song_id} doesn't exist"}), 404
+                return jsonify({"error": "Song not found"}), 404
             song = dict(song_row)
             song["created_at"] = str(song["created_at"])
 
-            # ── Section 2: Top Sounds, ranked by total creates ──
-            c.execute("SELECT * FROM sounds WHERE song_id=%s", (song_id,))
-            sounds = [dict(r) for r in c.fetchall()]
-            for s in sounds:
-                s["discovered_at"] = str(s["discovered_at"])
-                # Growth windows from song_stats snapshots
-                c.execute("""
-                    SELECT date, video_count FROM song_stats
-                    WHERE sound_id=%s ORDER BY date DESC LIMIT 8
-                """, (s["id"],))
-                snapshots = [dict(r) for r in c.fetchall()]
-                latest = snapshots[0]["video_count"] if snapshots else s.get("current_video_count")
-                day_ago = next((row["video_count"] for row in snapshots[1:2]), None)
-                week_ago = snapshots[7]["video_count"] if len(snapshots) > 7 else None
-
-                s["total_creates"] = latest
-                s["growth_24h"] = (latest - day_ago) if (latest is not None and day_ago is not None) else None
-                s["growth_24h_pct"] = round((s["growth_24h"] / day_ago) * 100, 2) if (s["growth_24h"] is not None and day_ago) else None
-                s["growth_7d"] = (latest - week_ago) if (latest is not None and week_ago is not None) else None
-                s["growth_7d_pct"] = round((s["growth_7d"] / week_ago) * 100, 2) if (s["growth_7d"] is not None and week_ago) else None
-
-            sounds.sort(key=lambda s: s.get("total_creates") or 0, reverse=True)
-            sound_db_ids = [s["id"] for s in sounds]
-
-            # ── Header: overall stats across all sounds for this song ──
-            total_creates = sum(s.get("total_creates") or 0 for s in sounds)
-            if sound_db_ids:
-                c.execute("""
-                    SELECT COALESCE(SUM(views),0) as views, COALESCE(SUM(likes),0) as likes,
-                           COUNT(*) as post_count, COUNT(DISTINCT username) as creator_count
-                    FROM posts WHERE sound_db_id = ANY(%s)
-                """, (sound_db_ids,))
-                header_stats = dict(c.fetchone())
-            else:
-                header_stats = {"views": 0, "likes": 0, "post_count": 0, "creator_count": 0}
-            header_stats["total_creates"] = total_creates
-
-            # Historical total-creates trend across all sounds combined, for the growth chart
+            # Sounds
             c.execute("""
-                SELECT date, SUM(video_count) as total_video_count
-                FROM song_stats WHERE sound_id = ANY(%s)
-                GROUP BY date ORDER BY date ASC
-            """, (sound_db_ids,)) if sound_db_ids else None
-            trend = [{"date": str(r["date"]), "total_creates": r["total_video_count"]} for r in c.fetchall()] if sound_db_ids else []
+                SELECT id, sound_id, title, author, status, current_video_count
+                FROM sounds WHERE song_id=%s AND status='approved'
+                ORDER BY current_video_count DESC NULLS LAST
+            """, (song_id,))
+            sounds = [dict(r) for r in c.fetchall()]
 
-            # ── Section 4: Top Posts, filtered by timeframe ──
-            posts_query = """
-                SELECT p.*, s.title as sound_title FROM posts p
-                JOIN sounds s ON p.sound_db_id = s.id
+            # Header stats — all time
+            c.execute("""
+                SELECT
+                    COUNT(DISTINCT p.post_id) as post_count,
+                    COUNT(DISTINCT p.username) as creator_count,
+                    COALESCE(SUM(p.views), 0) as views,
+                    COALESCE(SUM(p.likes), 0) as likes,
+                    COUNT(DISTINCT p.post_id) as total_creates
+                FROM posts p
+                JOIN sounds s ON s.id = p.sound_db_id
                 WHERE s.song_id = %s
-            """
-            params = [song_id]
-            if window == "24h":
-                posts_query += " AND p.created_at >= EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')"
-            elif window == "7d":
-                posts_query += " AND p.created_at >= EXTRACT(EPOCH FROM NOW() - INTERVAL '7 days')"
-            posts_query += " ORDER BY p.views DESC LIMIT 100"
-            c.execute(posts_query, params)
+            """, (song_id,))
+            stats_row = dict(c.fetchone())
+
+            # Top posts — all time, sorted by views, no date filter
+            c.execute("""
+                SELECT p.post_id, p.username, p.views, p.likes, p.comments,
+                       p.saves, p.shares, p.thumbnail, p.created_at, p.date
+                FROM posts p
+                JOIN sounds s ON s.id = p.sound_db_id
+                WHERE s.song_id = %s
+                ORDER BY p.views DESC NULLS LAST
+                LIMIT 20
+            """, (song_id,))
             top_posts = [dict(r) for r in c.fetchall()]
             for p in top_posts:
-                p["date"] = str(p["date"])
+                p["created_at"] = str(p["created_at"]) if p["created_at"] else None
+                p["date"] = str(p["date"]) if p["date"] else None
 
-            # ── Section 3: Top Creators across all sounds for this song ──
-            if sound_db_ids:
-                c.execute("""
-                    SELECT username, COALESCE(SUM(views),0) as total_views,
-                           COALESCE(SUM(likes),0) as total_likes, COUNT(*) as video_count,
-                           MAX(followers_at_post) as followers
-                    FROM posts WHERE sound_db_id = ANY(%s)
-                    GROUP BY username ORDER BY total_views DESC LIMIT 10
-                """, (sound_db_ids,))
-                top_creators = [dict(r) for r in c.fetchall()]
-            else:
-                top_creators = []
+            # Top creators
+            c.execute("""
+                SELECT p.username,
+                       COUNT(DISTINCT p.post_id) as post_count,
+                       COALESCE(SUM(p.views), 0) as total_views,
+                       COALESCE(SUM(p.likes), 0) as total_likes
+                FROM posts p
+                JOIN sounds s ON s.id = p.sound_db_id
+                WHERE s.song_id = %s
+                GROUP BY p.username
+                ORDER BY total_views DESC
+                LIMIT 10
+            """, (song_id,))
+            top_creators = [dict(r) for r in c.fetchall()]
+
+            # Trend — daily view counts
+            c.execute("""
+                SELECT p.date, COALESCE(SUM(p.views), 0) as views
+                FROM posts p
+                JOIN sounds s ON s.id = p.sound_db_id
+                WHERE s.song_id = %s
+                GROUP BY p.date
+                ORDER BY p.date ASC
+            """, (song_id,))
+            trend = [{"date": str(r["date"]), "views": r["views"]} for r in c.fetchall()]
 
     return jsonify({
         "song": song,
-        "header_stats": header_stats,
-        "trend": trend,
         "sounds": sounds,
-        "top_creators": top_creators,
+        "header_stats": {
+            "post_count": stats_row["post_count"],
+            "creator_count": stats_row["creator_count"],
+            "views": stats_row["views"],
+            "likes": stats_row["likes"],
+            "total_creates": stats_row["total_creates"],
+        },
         "top_posts": top_posts,
+        "top_creators": top_creators,
+        "trend": trend,
         "window": window,
     })
 
@@ -176,6 +159,7 @@ def song_detail(song_id):
 def delete_song(song_id):
     with db() as conn:
         with conn.cursor() as c:
+            c.execute("DELETE FROM sounds WHERE song_id=%s", (song_id,))
             c.execute("DELETE FROM songs WHERE id=%s", (song_id,))
         conn.commit()
     return jsonify({"ok": True})
@@ -194,24 +178,18 @@ def delete_sound(sound_db_id):
 def song_posts(song_id):
     with db() as conn:
         with conn.cursor() as c:
-            c.execute("SELECT * FROM songs WHERE id=%s", (song_id,))
-            song_row = c.fetchone()
-            if not song_row:
-                return jsonify({"error": f"Song {song_id} doesn't exist"}), 404
-            song = dict(song_row)
-            song["created_at"] = str(song["created_at"])
-
             c.execute("""
-                SELECT p.*, s.title as sound_title, s.sound_id as sound_tiktok_id
-                FROM posts p
-                JOIN sounds s ON p.sound_db_id = s.id
+                SELECT p.* FROM posts p
+                JOIN sounds s ON s.id = p.sound_db_id
                 WHERE s.song_id = %s
                 ORDER BY p.views DESC
+                LIMIT 100
             """, (song_id,))
             posts = [dict(r) for r in c.fetchall()]
-            for p in posts:
-                p["date"] = str(p["date"])
-    return jsonify({"song": song, "posts": posts})
+    for p in posts:
+        p["date"] = str(p["date"]) if p["date"] else None
+        p["created_at"] = str(p["created_at"]) if p["created_at"] else None
+    return jsonify(posts)
 
 
 @songs_bp.route("/songs")
