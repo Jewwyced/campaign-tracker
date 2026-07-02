@@ -223,7 +223,7 @@ def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_res
 def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
     """Find every TikTok sound for a Song and ingest each one."""
     query = f"{title} {artist}".strip()
-    found_sounds = discover_sounds(query)
+    found_sounds = discover_sounds(query)[:5]  # top 5 sounds only
     results = []
     for s in found_sounds:
         try:

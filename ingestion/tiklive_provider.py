@@ -9,7 +9,6 @@ All field names verified against actual TikLiveAPI response examples.
 """
 
 import os
-import json
 import requests
 
 TIKLIVEAPI_KEY = os.environ.get("TIKLIVEAPI_KEY", "")
@@ -76,9 +75,6 @@ class TikLiveAPIProvider:
         if not data:
             return None
 
-        # Debug: log raw response on first page only
-        if cursor == 0:
-            _log(json.dumps(data, indent=2)[:3000])
 
         videos = data.get("videos", [])
         items = []
@@ -118,8 +114,6 @@ class TikLiveAPIProvider:
         if not data:
             return None
 
-        # Debug: log raw response
-        _log(json.dumps(data, indent=2)[:3000])
 
         videos = data.get("videos", [])
         seen_ids = set()
