@@ -41,24 +41,30 @@
   .stat-box .value { font-size: 28px; font-weight: 700; margin-top: 6px; letter-spacing: -0.5px; }
   .stat-box .value.green { color: var(--success-text); }
 
-  .section-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 14px; }
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .section-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
 
-  /* Posts grid with thumbnails */
-  .posts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 36px; }
+  .sort-btn {
+    font-size: 12px; font-family: inherit;
+    padding: 5px 12px; border-radius: 6px;
+    border: 1px solid var(--border);
+    background: none; color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .sort-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .sort-btns { display: flex; gap: 6px; }
+
+  .posts-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 36px; }
   .post-card {
     border-radius: 10px; overflow: hidden; border: 1px solid var(--border);
     cursor: pointer; transition: transform .15s, box-shadow .15s;
-    text-decoration: none; color: inherit;
-    display: block;
+    text-decoration: none; color: inherit; display: block;
   }
   .post-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,.1); }
-  .post-thumb {
-    width: 100%; aspect-ratio: 9/16; object-fit: cover;
-    background: var(--surface-2);
-  }
+  .post-thumb { width: 100%; aspect-ratio: 9/16; object-fit: cover; background: var(--surface-2); display: block; }
   .post-thumb-placeholder {
     width: 100%; aspect-ratio: 9/16;
-    background: linear-gradient(135deg, var(--surface-2), var(--surface-1));
+    background: linear-gradient(135deg, #e0e0e8, #f0f0f4);
     display: flex; align-items: center; justify-content: center;
     font-size: 32px; color: var(--text-muted);
   }
@@ -67,8 +73,7 @@
   .post-views { font-size: 18px; font-weight: 700; margin-top: 4px; letter-spacing: -0.3px; }
   .post-likes { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
-  /* Sounds list */
-  .sounds-list { display: flex; flex-direction: column; gap: 8px; }
+  .sounds-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 36px; }
   .sound-row {
     display: flex; align-items: center; justify-content: space-between;
     padding: 12px 16px; border-radius: 10px;
@@ -78,11 +83,7 @@
   .sound-author { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
   .sound-count { font-size: 15px; font-weight: 700; color: var(--success-text); }
   .sound-count-lbl { font-size: 11px; color: var(--text-muted); }
-  .delete-btn {
-    background: none; border: none; color: var(--text-muted);
-    font-size: 16px; cursor: pointer; padding: 4px 8px;
-    border-radius: 6px;
-  }
+  .delete-btn { background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; padding: 4px 8px; border-radius: 6px; }
   .delete-btn:hover { background: var(--danger-bg); color: var(--danger); }
 
   .empty { padding: 48px; text-align: center; color: var(--text-muted); font-size: 14px; line-height: 1.8; }
@@ -115,15 +116,25 @@
     <div class="stat-box"><div class="label">Posts tracked</div><div class="value" id="stat-posts">-</div></div>
   </div>
 
-  <div class="section-label">Top Posts</div>
+  <div class="section-header">
+    <div class="section-label">Top Posts</div>
+    <div class="sort-btns">
+      <button class="sort-btn active" id="sort-views" onclick="setSortBy('views')">Most Popular</button>
+      <button class="sort-btn" id="sort-date" onclick="setSortBy('date')">Most Recent</button>
+    </div>
+  </div>
   <div class="posts-grid" id="posts-grid"><div class="loading">Loading posts...</div></div>
 
-  <div class="section-label">Sounds</div>
+  <div class="section-header" style="margin-top: 8px;">
+    <div class="section-label">Sounds</div>
+  </div>
   <div class="sounds-list" id="sounds-list"><div class="loading">Loading sounds...</div></div>
 </main>
 
 <script>
 const songId = window.location.pathname.split('/').pop();
+let allPosts = [];
+let sortBy = 'views';
 
 function fmt(n) {
   if (n == null || isNaN(n)) return '0';
@@ -136,6 +147,38 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str || '';
   return div.innerHTML;
+}
+
+function setSortBy(type) {
+  sortBy = type;
+  document.getElementById('sort-views').className = 'sort-btn' + (type === 'views' ? ' active' : '');
+  document.getElementById('sort-date').className = 'sort-btn' + (type === 'date' ? ' active' : '');
+  renderPostsGrid();
+}
+
+function renderPostsGrid() {
+  const postsGrid = document.getElementById('posts-grid');
+  if (!allPosts || allPosts.length === 0) {
+    postsGrid.innerHTML = '<div class="empty">No posts yet.<br>Posts will appear here after the next refresh.</div>';
+    return;
+  }
+  const sorted = [...allPosts].sort((a, b) => {
+    if (sortBy === 'date') return (parseInt(b.created_at) || 0) - (parseInt(a.created_at) || 0);
+    return (parseInt(b.views) || 0) - (parseInt(a.views) || 0);
+  });
+  postsGrid.innerHTML = sorted.slice(0, 20).map(p => `
+    <a class="post-card" href="https://tiktok.com/@${escapeHtml(p.username)}/video/${escapeHtml(p.post_id)}" target="_blank">
+      ${p.thumbnail
+        ? `<img class="post-thumb" src="${escapeHtml(p.thumbnail)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+        : ''}
+      <div class="post-thumb-placeholder" ${p.thumbnail ? 'style="display:none"' : ''}>🎵</div>
+      <div class="post-info">
+        <div class="post-username">@${escapeHtml(p.username)}</div>
+        <div class="post-views">${fmt(p.views)}</div>
+        <div class="post-likes">${fmt(p.likes)} likes</div>
+      </div>
+    </a>
+  `).join('');
 }
 
 async function load() {
@@ -153,34 +196,16 @@ async function load() {
   document.getElementById('song-title').textContent = song.name;
   document.getElementById('song-artist').textContent = song.artist || '';
 
-  const totalViews = posts.reduce((s, p) => s + (parseInt(p.views) || 0), 0);
-  const creators = new Set(posts.map(p => p.username)).size;
+  const totalViews = data.header_stats?.views || 0;
+  const creators = data.header_stats?.creator_count || 0;
 
   document.getElementById('stat-views').textContent = fmt(totalViews);
   document.getElementById('stat-sounds').textContent = sounds.length;
   document.getElementById('stat-creators').textContent = creators;
-  document.getElementById('stat-posts').textContent = posts.length;
+  document.getElementById('stat-posts').textContent = data.header_stats?.post_count || 0;
 
-  // Posts grid with thumbnails
-  const postsGrid = document.getElementById('posts-grid');
-  if (posts.length === 0) {
-    postsGrid.innerHTML = '<div class="empty">No posts yet.<br>Posts will appear here after the next refresh.</div>';
-  } else {
-    const topPosts = [...posts].sort((a, b) => (parseInt(b.views) || 0) - (parseInt(a.views) || 0)).slice(0, 12);
-    postsGrid.innerHTML = topPosts.map(p => `
-      <a class="post-card" href="https://tiktok.com/@${escapeHtml(p.username)}/video/${escapeHtml(p.post_id)}" target="_blank">
-        ${p.thumbnail
-          ? `<img class="post-thumb" src="${escapeHtml(p.thumbnail)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
-          : ''}
-        <div class="post-thumb-placeholder" ${p.thumbnail ? 'style="display:none"' : ''}>🎵</div>
-        <div class="post-info">
-          <div class="post-username">@${escapeHtml(p.username)}</div>
-          <div class="post-views">${fmt(p.views)}</div>
-          <div class="post-likes">${fmt(p.likes)} likes</div>
-        </div>
-      </a>
-    `).join('');
-  }
+  allPosts = posts;
+  renderPostsGrid();
 
   // Sounds list
   const soundsList = document.getElementById('sounds-list');
