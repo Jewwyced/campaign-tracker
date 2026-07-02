@@ -252,11 +252,11 @@ def campaign_songs(campaign_id):
                 SELECT s.*,
                     COUNT(DISTINCT p.post_id) as post_count,
                     COALESCE(SUM(p.views), 0) as total_views
-                FROM campaigns c
-                JOIN songs s ON s.id = c.song_id
+                FROM campaign_songs cs
+                JOIN songs s ON s.id = cs.song_id
                 LEFT JOIN sounds snd ON snd.song_id = s.id
                 LEFT JOIN posts p ON p.sound_db_id = snd.id
-                WHERE c.id = %s
+                WHERE cs.campaign_id = %s
                 GROUP BY s.id
             """, (campaign_id,))
             songs = [dict(r) for r in c.fetchall()]
