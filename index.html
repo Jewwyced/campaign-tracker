@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Campaign Tracker</title>
+<title>Campaigns</title>
 <style>
   :root {
     --bg: #ffffff;
@@ -16,438 +16,227 @@
     --accent-dim: #4f46e5;
     --success-bg: #ecfdf5;
     --success-text: #059669;
-    --neutral-bg: #f0f0f2;
-    --neutral-text: #71717a;
+    --danger: #dc2626;
+    --danger-bg: #fef2f2;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
+  body { background: var(--bg); color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; padding: 0 32px; border-bottom: 1px solid var(--border); height: 52px; }
+  header .nav a { font-size: 13px; color: var(--text-secondary); text-decoration: none; margin-right: 20px; }
+  header .nav a:hover { color: var(--text-primary); }
+  header .nav a.active { color: var(--text-primary); font-weight: 600; border-bottom: 2px solid var(--accent); padding-bottom: 2px; }
+  main { padding: 28px 32px; max-width: 1100px; margin: 0 auto; }
+
+  .hero {
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    border-radius: 16px; padding: 28px 32px;
+    color: white; margin-bottom: 32px;
+    display: flex; gap: 40px; align-items: center;
+  }
+  .hero-stat { }
+  .hero-stat .val { font-size: 36px; font-weight: 800; letter-spacing: -1px; }
+  .hero-stat .lbl { font-size: 12px; opacity: .75; margin-top: 2px; text-transform: uppercase; letter-spacing: .5px; }
+  .hero-divider { width: 1px; background: rgba(255,255,255,.2); align-self: stretch; }
+
+  .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .page-title { font-size: 20px; font-weight: 700; }
+  .page-sub { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+  .btn-primary { font-size: 13px; font-family: inherit; background: var(--accent); color: white; border: none; padding: 9px 18px; border-radius: 8px; cursor: pointer; font-weight: 500; }
+  .btn-primary:hover { background: var(--accent-dim); }
+
+  .campaigns-grid { display: flex; flex-direction: column; gap: 10px; }
+  .campaign-row {
+    display: grid; grid-template-columns: 1fr 120px 90px 130px 100px 40px;
+    align-items: center; gap: 12px;
+    padding: 16px 20px; border-radius: 12px;
+    border: 1px solid var(--border); cursor: pointer;
+    transition: border-color .15s, box-shadow .15s;
     background: var(--bg);
-    color: var(--text-primary);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
-  header {
-    display: flex;
-    align-items: center;
-    padding: 20px 32px;
-    border-bottom: 1px solid var(--border);
+  .campaign-row:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(99,102,241,.08); }
+  .campaign-row.header-row {
+    font-size: 11px; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: .4px;
+    cursor: default; border: none; padding: 0 20px; margin-bottom: 4px;
   }
-  main {
-    padding: 28px 32px;
-    max-width: 1100px;
-    margin: 0 auto;
-  }
-  .summary-card {
-    background: var(--surface-1);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 18px 20px;
-    margin-bottom: 20px;
-  }
-  .summary-text {
-    font-size: 14px;
-    color: var(--text-primary);
-    line-height: 1.55;
-    margin-bottom: 14px;
-  }
-  .summary-stats {
-    display: flex;
-    gap: 24px;
-    border-top: 1px solid var(--border);
-    padding-top: 12px;
-  }
-  .summary-stat {
-    font-size: 12px;
-    color: var(--text-muted);
-  }
-  .summary-stat strong {
-    font-size: 13px;
-    color: var(--text-primary);
-    font-weight: 500;
-  }
+  .campaign-row.header-row:hover { border-color: transparent; box-shadow: none; }
+  .camp-name { font-size: 15px; font-weight: 600; }
+  .camp-artist { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .pill { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; background: currentColor; }
+  .pill.active { background: var(--success-bg); color: var(--success-text); }
+  .pill.wrapped { background: var(--surface-2); color: var(--text-muted); }
+  .views-val { font-size: 15px; font-weight: 700; }
+  .delete-x { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+  .delete-x:hover { background: var(--danger-bg); color: var(--danger); }
 
-  .toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 20px;
-  }
-  .toolbar .title {
-    font-size: 18px;
-    font-weight: 500;
-  }
-  .toolbar .subtitle {
-    font-size: 13px;
-    color: var(--text-muted);
-    margin-top: 2px;
-  }
-  button {
-    font-size: 13px;
-    font-family: inherit;
-    background: var(--accent);
-    color: white;
-    border: none;
-    padding: 8px 14px;
-    border-radius: 8px;
-    cursor: pointer;
-  }
-  button:hover { background: var(--accent-dim); }
-  button.secondary {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-  }
-  button.secondary:hover { color: var(--text-primary); border-color: var(--text-muted); }
-
-  .table-wrap {
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow: hidden;
-  }
-  .row {
-    display: grid;
-    grid-template-columns: 2fr 1fr 1fr 1fr 1fr 0.4fr;
-    padding: 14px 16px;
-    align-items: center;
-    border-top: 1px solid var(--border);
-  }
-  .row.header-row {
-    border-top: none;
-    background: var(--surface-1);
-    font-size: 12px;
-    color: var(--text-muted);
-    padding: 10px 16px;
-  }
-  .row:not(.header-row) {
-    cursor: pointer;
-    transition: background 0.1s;
-  }
-  .row:not(.header-row):hover {
-    background: var(--surface-2);
-  }
-  .campaign-name {
-    font-size: 14px;
-    font-weight: 500;
-  }
-  .campaign-artist {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-top: 2px;
-  }
-  .pill {
-    display: inline-flex;
-    align-items: center;
-    font-size: 12px;
-    padding: 3px 10px;
-    border-radius: 999px;
-  }
-  .pill.active {
-    background: var(--success-bg);
-    color: var(--success-text);
-  }
-  .pill.neutral {
-    background: var(--neutral-bg);
-    color: var(--neutral-text);
-  }
-  .pill .dot {
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    margin-right: 6px;
-    background: currentColor;
-  }
-  .cell-num { font-size: 14px; color: var(--text-secondary); }
-  .cell-muted { font-size: 13px; color: var(--text-muted); }
-
-  .empty {
-    padding: 48px;
-    text-align: center;
-    color: var(--text-muted);
-    font-size: 14px;
-  }
-
-  /* Modal for creating a campaign */
-  .modal-overlay {
-    display: none;
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.6);
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-  }
-  .modal-overlay.open { display: flex; }
-  .modal {
-    background: var(--surface-1);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 24px;
-    width: 380px;
-  }
-  .modal h3 { font-size: 15px; font-weight: 500; margin-bottom: 16px; }
-  .modal label {
-    font-size: 12px;
-    color: var(--text-muted);
-    display: block;
-    margin-bottom: 6px;
-  }
-  .modal input {
-    width: 100%;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    padding: 9px 12px;
-    border-radius: 8px;
-    font-size: 14px;
-    margin-bottom: 16px;
-    font-family: inherit;
-  }
-  .modal input:focus { outline: none; border-color: var(--accent); }
-  .modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-  #create-error {
-    font-size: 13px;
-    color: #dc2626;
-    margin-bottom: 12px;
-  }
-  #status { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; min-height: 16px; }
+  /* Modal */
+  .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 100; align-items: center; justify-content: center; }
+  .modal-backdrop.open { display: flex; }
+  .modal { background: white; border-radius: 16px; padding: 28px; width: 420px; max-width: 90vw; box-shadow: 0 20px 60px rgba(0,0,0,.2); }
+  .modal h2 { font-size: 18px; font-weight: 700; margin-bottom: 20px; }
+  .modal label { font-size: 13px; color: var(--text-secondary); display: block; margin-bottom: 6px; margin-top: 14px; }
+  .modal input, .modal select { width: 100%; font-family: inherit; font-size: 14px; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text-primary); }
+  .modal input:focus, .modal select:focus { outline: none; border-color: var(--accent); }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+  .btn-cancel { font-size: 13px; font-family: inherit; background: none; border: 1px solid var(--border); padding: 9px 16px; border-radius: 8px; cursor: pointer; }
+  #modal-error { font-size: 13px; color: var(--danger); margin-top: 10px; display: none; }
 </style>
 </head>
 <body>
-
 <header>
-  <div>
-    <a href="/" style="font-size:13px; color:var(--text-secondary); text-decoration:none; margin-right:16px;">Dashboard</a>
-    <a href="/campaigns" style="font-size:13px; color:var(--text-primary); font-weight:500; text-decoration:none; margin-right:16px;">Campaigns</a>
-    <a href="/artists" style="font-size:13px; color:var(--text-secondary); text-decoration:none; margin-right:16px;">Artists</a>
-    <a href="/sounds" style="font-size:13px; color:var(--text-secondary); text-decoration:none;">Sound lookup</a>
+  <div class="nav">
+    <a href="/">Dashboard</a>
+    <a href="/campaigns" class="active">Campaigns</a>
+    <a href="/songs">Songs</a>
+    <a href="/artists">Artists</a>
+    <a href="/sounds">Sound lookup</a>
   </div>
 </header>
 
 <main>
-  <div class="summary-card" id="summary-card" style="display:none;">
-    <div class="summary-text" id="summary-text"></div>
-    <div class="summary-stats" id="summary-stats"></div>
+  <div class="hero" id="hero" style="display:none;">
+    <div class="hero-stat"><div class="val" id="hero-views">-</div><div class="lbl">Total Views</div></div>
+    <div class="hero-divider"></div>
+    <div class="hero-stat"><div class="val" id="hero-posts">-</div><div class="lbl">Posts Tracked</div></div>
+    <div class="hero-divider"></div>
+    <div class="hero-stat"><div class="val" id="hero-campaigns">-</div><div class="lbl">Campaigns</div></div>
   </div>
 
-  <div class="toolbar">
+  <div class="page-header">
     <div>
-      <div class="title">Campaigns</div>
-      <div class="subtitle" id="campaign-count">Loading...</div>
+      <div class="page-title">Campaigns</div>
+      <div class="page-sub" id="page-sub">Loading...</div>
     </div>
-    <button onclick="openModal()">New campaign</button>
+    <button class="btn-primary" onclick="openModal()">+ New campaign</button>
   </div>
 
-  <div id="status"></div>
-
-  <div class="table-wrap" id="table-wrap">
-    <div class="row header-row">
-      <div>Campaign</div>
-      <div>Status</div>
-      <div>Posts</div>
-      <div>Total views</div>
-      <div>Created</div>
-      <div></div>
-    </div>
-    <div id="campaign-rows"></div>
+  <div class="campaign-row header-row">
+    <div>Campaign</div>
+    <div>Status</div>
+    <div>Posts</div>
+    <div>Total views</div>
+    <div>Created</div>
+    <div></div>
   </div>
+  <div class="campaigns-grid" id="campaigns-grid"></div>
 </main>
 
-<div class="modal-overlay" id="modal-overlay">
+<div class="modal-backdrop" id="modal">
   <div class="modal">
-    <h3>New campaign</h3>
-    <div id="create-error"></div>
-    <label for="campaign-name">Campaign name</label>
-    <input type="text" id="campaign-name" placeholder="Million Dollar Minion">
-    <label for="campaign-artist">Artist</label>
-    <input type="text" id="campaign-artist" placeholder="Yeat">
+    <h2>New campaign</h2>
+    <label>Campaign name</label>
+    <input type="text" id="new-name" placeholder="e.g. ADL">
+    <label>Artist</label>
+    <input type="text" id="new-artist" placeholder="e.g. Yeat">
+    <label>Type</label>
+    <select id="new-type">
+      <option value="single">Single</option>
+      <option value="album">Album</option>
+    </select>
+    <div id="modal-error"></div>
     <div class="modal-actions">
-      <button class="secondary" onclick="closeModal()">Cancel</button>
-      <button onclick="createCampaign()" id="create-btn">Create campaign</button>
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="createCampaign()">Create</button>
     </div>
   </div>
 </div>
 
 <script>
-let campaigns = [];
-let postCounts = {};
-
 function fmt(n) {
   if (n == null || isNaN(n)) return '-';
+  if (n >= 1e9) return (n/1e9).toFixed(1) + 'B';
   if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
   if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
   return String(n);
 }
-
-function timeAgo(dateStr) {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return mins + 'm ago';
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return hours + 'h ago';
-  const days = Math.floor(hours / 24);
-  return days + 'd ago';
+function timeAgo(str) {
+  const d = new Date(str);
+  const s = (Date.now() - d) / 1000;
+  if (s < 3600) return Math.floor(s/60) + 'm ago';
+  if (s < 86400) return Math.floor(s/3600) + 'h ago';
+  return Math.floor(s/86400) + 'd ago';
+}
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
 }
 
-async function loadCampaigns() {
-  try {
-    const res = await fetch('/api/campaigns');
-    campaigns = await res.json();
-    document.getElementById('status').textContent = '';
+async function load() {
+  const res = await fetch('/api/campaigns');
+  const campaigns = await res.json();
+  if (!Array.isArray(campaigns)) return;
 
-    // Fetch post data for each campaign to get counts + total views
-    await Promise.all(campaigns.map(async c => {
-      try {
-        const r = await fetch(`/api/campaigns/${c.id}/posts`);
-        const data = await r.json();
-        postCounts[c.id] = {
-          count: data.posts.length,
-          totalViews: data.posts.reduce((sum, p) => sum + (p.views || 0), 0)
-        };
-      } catch (e) {
-        postCounts[c.id] = { count: 0, totalViews: 0 };
-      }
-    }));
+  const totalViews = campaigns.reduce((s, c) => s + (parseInt(c.total_views) || 0), 0);
+  const totalPosts = campaigns.reduce((s, c) => s + (parseInt(c.post_count) || 0), 0);
 
-    render();
-  } catch (e) {
-    document.getElementById('status').textContent = 'Could not reach the server. Is app.py running?';
-  }
-}
+  document.getElementById('hero-views').textContent = fmt(totalViews);
+  document.getElementById('hero-posts').textContent = fmt(totalPosts);
+  document.getElementById('hero-campaigns').textContent = campaigns.length;
+  document.getElementById('hero').style.display = 'flex';
+  document.getElementById('page-sub').textContent = campaigns.length + ' campaigns';
 
-function render() {
-  const countEl = document.getElementById('campaign-count');
-  countEl.textContent = campaigns.length === 0
-    ? 'No campaigns yet'
-    : `${campaigns.length} campaign${campaigns.length === 1 ? '' : 's'}`;
-
-  const rowsEl = document.getElementById('campaign-rows');
-
-  if (campaigns.length === 0) {
-    rowsEl.innerHTML = '<div class="empty">Start your first campaign.<br><span style="font-size:13px;">Create one, then paste in TikTok links to track.</span></div>';
-    return;
-  }
-
-  rowsEl.innerHTML = campaigns.map(c => {
-    const stats = postCounts[c.id] || { count: 0, totalViews: 0 };
-    const isActive = c.status === 'In Progress';
-    return `
-      <div class="row" onclick="window.location.href='/campaign/${c.id}'">
-        <div>
-          <div class="campaign-name">${escapeHtml(c.name)}</div>
-          <div class="campaign-artist">${escapeHtml(c.artist || '')}</div>
-        </div>
-        <div>
-          <span class="pill ${isActive ? 'active' : 'neutral'}">
-            <span class="dot"></span>${escapeHtml(c.status)}
-          </span>
-        </div>
-        <div class="cell-num">${stats.count}</div>
-        <div class="cell-num">${fmt(stats.totalViews)}</div>
-        <div class="cell-muted">${timeAgo(c.created_at)}</div>
-        <div style="text-align:right;">
-          <button onclick="event.stopPropagation(); deleteCampaign(${c.id}, '${escapeHtml(c.name).replace(/'/g, "\\'")}')" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:16px; padding:4px;" title="Delete campaign">&times;</button>
-        </div>
+  const grid = document.getElementById('campaigns-grid');
+  grid.innerHTML = campaigns.map(c => `
+    <div class="campaign-row" onclick="window.location.href='/campaign/${c.id}'">
+      <div>
+        <div class="camp-name">${escapeHtml(c.name)}</div>
+        <div class="camp-artist">${escapeHtml(c.artist || '')}</div>
       </div>
-    `;
-  }).join('');
+      <div>
+        <span class="pill ${c.status === 'In Progress' ? 'active' : 'wrapped'}">
+          <span class="dot"></span>${escapeHtml(c.status)}
+        </span>
+      </div>
+      <div>${c.post_count || 0}</div>
+      <div class="views-val">${fmt(c.total_views)}</div>
+      <div style="color:var(--text-muted);font-size:13px;">${timeAgo(c.created_at)}</div>
+      <div>
+        <button class="delete-x" onclick="event.stopPropagation(); deleteCampaign(${c.id}, '${escapeHtml(c.name)}')" title="Delete">×</button>
+      </div>
+    </div>
+  `).join('');
 }
 
 async function deleteCampaign(id, name) {
   if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
   await fetch(`/api/campaigns/${id}`, { method: 'DELETE' });
-  await loadCampaigns();
-}
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  load();
 }
 
 function openModal() {
-  document.getElementById('modal-overlay').classList.add('open');
-  document.getElementById('create-error').textContent = '';
-  document.getElementById('campaign-name').value = '';
-  document.getElementById('campaign-artist').value = '';
-  document.getElementById('campaign-name').focus();
+  document.getElementById('modal').classList.add('open');
+  document.getElementById('new-name').focus();
 }
-
 function closeModal() {
-  document.getElementById('modal-overlay').classList.remove('open');
+  document.getElementById('modal').classList.remove('open');
+  document.getElementById('modal-error').style.display = 'none';
 }
 
 async function createCampaign() {
-  const name = document.getElementById('campaign-name').value.trim();
-  const artist = document.getElementById('campaign-artist').value.trim();
-  const btn = document.getElementById('create-btn');
-  const errEl = document.getElementById('create-error');
-
-  if (!name) {
-    errEl.textContent = 'Campaign name is required.';
-    return;
-  }
-
-  btn.disabled = true;
-  btn.textContent = 'Creating...';
-  errEl.textContent = '';
-
-  try {
-    const res = await fetch('/api/campaigns', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, artist })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      errEl.textContent = data.error || 'Something went wrong.';
-    } else {
-      closeModal();
-      await loadCampaigns();
-    }
-  } catch (e) {
-    errEl.textContent = 'Could not reach the server.';
-  }
-
-  btn.disabled = false;
-  btn.textContent = 'Create campaign';
+  const name = document.getElementById('new-name').value.trim();
+  const artist = document.getElementById('new-artist').value.trim();
+  const release_type = document.getElementById('new-type').value;
+  const errEl = document.getElementById('modal-error');
+  if (!name) { errEl.textContent = 'Campaign name required.'; errEl.style.display = 'block'; return; }
+  const res = await fetch('/api/campaigns', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, artist, release_type })
+  });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error || 'Something went wrong.'; errEl.style.display = 'block'; return; }
+  closeModal();
+  window.location.href = `/campaign/${data.id}`;
 }
 
-document.getElementById('modal-overlay').addEventListener('click', (e) => {
-  if (e.target.id === 'modal-overlay') closeModal();
+document.getElementById('modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('modal')) closeModal();
 });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-async function loadSummary() {
-  try {
-    const res = await fetch('/api/summary');
-    const data = await res.json();
-    const card = document.getElementById('summary-card');
-
-    if (data.ai_summary) {
-      document.getElementById('summary-text').textContent = data.ai_summary;
-    } else {
-      document.getElementById('summary-text').textContent =
-        `${fmt(data.total_views)} total views across ${data.campaigns.length} campaign${data.campaigns.length === 1 ? '' : 's'}.`;
-    }
-
-    document.getElementById('summary-stats').innerHTML = `
-      <div class="summary-stat"><strong>${fmt(data.total_views)}</strong><br>total views</div>
-      <div class="summary-stat"><strong>${data.total_posts}</strong><br>posts tracked</div>
-      <div class="summary-stat"><strong>${data.new_posts_24h}</strong><br>added in 24h</div>
-    `;
-    card.style.display = 'block';
-  } catch (e) {
-    // Fail silently — summary is a nice-to-have, not core functionality
-  }
-}
-
-loadCampaigns();
-loadSummary();
+load();
 </script>
-
 </body>
 </html>
