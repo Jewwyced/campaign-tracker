@@ -6,20 +6,13 @@ Designed as an additional provider for discovery operations and failover
 when another provider is unavailable.
 
 All field names verified against actual TikLiveAPI response examples.
-
-Add to ProviderPipeline in providers.py:
-    from .tiklive_provider import TikLiveAPIProvider
-    default_provider = ProviderPipeline([
-        TikAPIProvider(),
-        TikLiveAPIProvider(),
-    ])
 """
 
 import os
 import json
 import requests
 
-TIKLIVEAPI_KEY = os.environ.get("d9ef39496d0711607eec376658918c06", "")
+TIKLIVEAPI_KEY = os.environ.get("TIKLIVEAPI_KEY", "")
 BASE_URL = "https://api.tikliveapi.com"
 
 
@@ -58,7 +51,6 @@ class TikLiveAPIProvider:
         data = self._get("/music-info/", {"music_id": sound_id})
         if not data:
             return None
-        # Normalize to TikAPI musicInfo shape
         return {
             "musicInfo": {
                 "music": {
@@ -78,17 +70,15 @@ class TikLiveAPIProvider:
         """Returns one page of posts normalized to TikAPI itemStruct shape."""
         data = self._get("/music-posts/", {
             "music_id": sound_id,
-            "count": min(count, 35),  # TikLiveAPI max is 35
+            "count": min(count, 35),
             "cursor": cursor,
         })
         if not data:
             return None
-        
+
+        # Debug: log raw response on first page only
         if cursor == 0:
             _log(json.dumps(data, indent=2)[:3000])
-        
-        import json
-        _log(json.dumps(data, indent=2)[:3000])  # temporary debug
 
         videos = data.get("videos", [])
         items = []
@@ -123,12 +113,13 @@ class TikLiveAPIProvider:
         }
 
     def search_sounds(self, query):
-        """Search videos by keyword, deduplicate by music id, return TikAPI search shape."""
+        """Search videos by keyword, deduplicate by music id."""
         data = self._get("/search-video/", {"keyword": query, "count": 30})
         if not data:
             return None
-        
-        _log(json.dumps(data, indent=2)[:4000])
+
+        # Debug: log raw response
+        _log(json.dumps(data, indent=2)[:3000])
 
         videos = data.get("videos", [])
         seen_ids = set()
@@ -152,11 +143,7 @@ class TikLiveAPIProvider:
         return {"data": items}
 
     def get_account(self, username):
-        """Returns user profile normalized to TikAPI userInfo shape.
-        Verified against actual /userinfo-by-username/ response.
-        Fields: user.id (numeric), user.secUid, user.uniqueId,
-                user.stats.followerCount, heartCount, videoCount
-        """
+        """Returns user profile normalized to TikAPI userInfo shape."""
         data = self._get("/userinfo-by-username/", {"username": username})
         if not data:
             return None
@@ -167,7 +154,7 @@ class TikLiveAPIProvider:
         return {
             "userInfo": {
                 "user": {
-                    "id": user.get("id"),           # numeric ID for user-posts
+                    "id": user.get("id"),
                     "secUid": user.get("secUid"),
                     "uniqueId": user.get("uniqueId"),
                 },
@@ -181,26 +168,16 @@ class TikLiveAPIProvider:
 
     def get_account_posts(self, sec_uid, count=10):
         """Returns recent posts normalized to TikAPI posts shape.
-        TikLiveAPI /user-posts/ requires numeric userid, not secUid.
 
         # TODO:
         # TikLiveAPI requires a numeric user ID for get_account_posts(),
         # while BaseProvider currently passes secUid.
         # Redesign provider interface to support provider-specific account IDs.
-        The sec_uid parameter name is kept for BaseProvider compatibility —
-        callers pass secUid but TikLiveAPI needs the numeric id.
-        Since we can't convert secUid→userid without an extra API call,
-        this method returns None (falls back to TikAPIProvider) unless
-        the caller passes a numeric id disguised as sec_uid.
-        Long term: get_account() should return userid and service layer
-        should pass it through explicitly.
         """
-        # If sec_uid looks numeric, use it directly as userid
         if sec_uid and str(sec_uid).isdigit():
             data = self._get("/user-posts/", {"userid": sec_uid, "count": min(count, 35)})
         else:
-            # Can't convert secUid to userid without extra call — skip this provider
-            _log(f"get_account_posts: secUid {sec_uid[:12]}... is not numeric, skipping")
+            _log(f"get_account_posts: secUid is not numeric, skipping")
             return None
 
         if not data:
@@ -223,18 +200,12 @@ class TikLiveAPIProvider:
         return {"itemList": items}
 
     def get_post(self, post_id):
-        """Returns single post normalized to TikAPI video shape.
-        TikLiveAPI /post-detail/ accepts a full TikTok URL, not a bare video ID.
-        We construct a placeholder URL since we only have the post_id.
-        Verified field names: id, title, create_time, play_count, digg_count,
-        comment_count, collect_count, share_count, cover, author.unique_id
-        """
+        """Returns single post normalized to TikAPI video shape."""
         url = f"https://www.tiktok.com/@placeholder/video/{post_id}"
         data = self._get("/post-detail/", {"url": url})
         if not data:
             return None
 
-        # post-detail returns the video object at the top level
         author = data.get("author", {})
         return {
             "itemInfo": {
