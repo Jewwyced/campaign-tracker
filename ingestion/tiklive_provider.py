@@ -16,6 +16,7 @@ Add to ProviderPipeline in providers.py:
 """
 
 import os
+import json
 import requests
 
 TIKLIVEAPI_KEY = os.environ.get("d9ef39496d0711607eec376658918c06", "")
@@ -82,6 +83,12 @@ class TikLiveAPIProvider:
         })
         if not data:
             return None
+        
+        if cursor == 0:
+            _log(json.dumps(data, indent=2)[:3000])
+        
+        import json
+        _log(json.dumps(data, indent=2)[:3000])  # temporary debug
 
         videos = data.get("videos", [])
         items = []
