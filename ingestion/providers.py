@@ -23,6 +23,7 @@ knowing anything changed.
 
 import os
 from .client import tikapi
+from .tiklive_provider import TikLiveAPIProvider
 
 
 # ── Provider interface ────────────────────────────────────────────────────────
@@ -173,5 +174,6 @@ class ProviderPipeline:
 
 default_provider = ProviderPipeline([
     TikAPIProvider(),
+    TikLiveAPIProvider(),
     # FallbackProvider(),  ← uncomment when a real fallback exists
 ])
