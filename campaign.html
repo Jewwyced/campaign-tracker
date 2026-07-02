@@ -19,6 +19,7 @@
     --neutral-bg: #f0f0f2;
     --neutral-text: #71717a;
     --danger: #dc2626;
+    --danger-bg: #fef2f2;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -29,19 +30,22 @@
   header {
     display: flex;
     align-items: center;
-    padding: 20px 32px;
+    padding: 0 32px;
     border-bottom: 1px solid var(--border);
+    height: 52px;
   }
   header .nav a {
     font-size: 13px;
     color: var(--text-secondary);
     text-decoration: none;
-    margin-right: 16px;
+    margin-right: 20px;
+    padding: 4px 0;
   }
   header .nav a:hover { color: var(--text-primary); }
+  header .nav a.active { color: var(--text-primary); font-weight: 600; border-bottom: 2px solid var(--accent); }
 
   main { padding: 28px 32px; max-width: 1100px; margin: 0 auto; }
-  .breadcrumb { font-size: 13px; margin-bottom: 16px; }
+  .breadcrumb { font-size: 13px; margin-bottom: 20px; }
   .breadcrumb a { color: var(--text-muted); text-decoration: none; }
   .breadcrumb a:hover { color: var(--text-primary); }
 
@@ -49,23 +53,18 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    margin-bottom: 28px;
-    padding-bottom: 20px;
+    margin-bottom: 32px;
+    padding-bottom: 24px;
     border-bottom: 1px solid var(--border);
   }
-  .campaign-title-row { display: flex; align-items: center; gap: 10px; }
-  .campaign-title { font-size: 24px; font-weight: 600; }
+  .campaign-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .campaign-title { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
   .release-type-badge {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: .4px;
-    color: var(--text-muted);
-    background: var(--surface-1);
-    padding: 3px 8px;
-    border-radius: 6px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .4px; color: var(--text-muted);
+    background: var(--surface-1); padding: 3px 8px; border-radius: 6px;
   }
-  .campaign-artist { font-size: 14px; color: var(--text-muted); margin-top: 4px; }
+  .campaign-artist { font-size: 15px; color: var(--text-muted); margin-top: 6px; }
   .pill {
     display: inline-flex; align-items: center;
     font-size: 11px; font-weight: 600;
@@ -82,18 +81,31 @@
     background: var(--bg); color: var(--text-primary);
     cursor: pointer;
   }
+  .btn-danger {
+    font-size: 13px; font-family: inherit;
+    background: none; color: var(--danger);
+    border: 1px solid var(--border);
+    padding: 7px 14px; border-radius: 8px; cursor: pointer;
+  }
+  .btn-danger:hover { background: var(--danger-bg); border-color: var(--danger); }
 
   .section-label {
     font-size: 12px; font-weight: 600; color: var(--text-muted);
     text-transform: uppercase; letter-spacing: .5px;
     margin-bottom: 12px;
   }
-  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 32px; }
-  .stat-box { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
-  .stat-box .label { font-size: 12px; color: var(--text-muted); }
-  .stat-box .value { font-size: 22px; font-weight: 600; margin-top: 6px; }
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 36px; }
+  .stat-box {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px;
+  }
+  .stat-box .label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+  .stat-box .value { font-size: 28px; font-weight: 700; margin-top: 6px; letter-spacing: -0.5px; }
 
-  .add-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .add-card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; margin-bottom: 20px;
+  }
   .add-label { font-size: 13px; color: var(--text-secondary); margin-bottom: 10px; }
   .add-row { display: flex; gap: 8px; }
   input[type=text] {
@@ -102,27 +114,52 @@
     border: 1px solid var(--border); background: var(--bg); color: var(--text-primary);
   }
   input[type=text]:focus { outline: none; border-color: var(--accent); }
-  button {
+  button.btn-primary {
     font-size: 13px; font-family: inherit;
     background: var(--accent); color: white; border: none;
     padding: 9px 16px; border-radius: 8px; cursor: pointer; white-space: nowrap;
   }
-  button:hover { background: var(--accent-dim); }
-  button:disabled { background: var(--text-muted); cursor: default; }
+  button.btn-primary:hover { background: var(--accent-dim); }
+  button.btn-primary:disabled { background: var(--text-muted); cursor: default; }
   #add-song-error { font-size: 13px; color: var(--danger); margin-top: 10px; }
-  #status { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; min-height: 16px; }
+  #add-song-status { font-size: 13px; color: var(--text-muted); margin-top: 8px; }
 
-  .songs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .songs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
   .song-card {
     background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: 12px; padding: 16px; cursor: pointer;
-    transition: border-color .15s;
+    border-radius: 12px; padding: 18px; position: relative;
+    cursor: pointer; transition: border-color .15s, box-shadow .15s;
   }
-  .song-card:hover { border-color: var(--accent); }
-  .song-card .name { font-size: 15px; font-weight: 600; }
-  .song-card .meta { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
-  .song-card .views { font-size: 16px; font-weight: 600; color: var(--success-text); margin-top: 8px; }
-  .empty { padding: 40px; text-align: center; color: var(--text-muted); font-size: 14px; }
+  .song-card:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(99,102,241,.08); }
+  .song-card .name { font-size: 15px; font-weight: 600; padding-right: 28px; }
+  .song-card .artist { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+  .song-card .views { font-size: 22px; font-weight: 700; color: var(--success-text); margin-top: 12px; letter-spacing: -0.5px; }
+  .song-card .meta { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+  .song-card .delete-btn {
+    position: absolute; top: 12px; right: 12px;
+    width: 24px; height: 24px; border-radius: 6px;
+    background: none; border: none;
+    color: var(--text-muted); font-size: 16px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background .15s, color .15s;
+  }
+  .song-card .delete-btn:hover { background: var(--danger-bg); color: var(--danger); }
+  .empty { padding: 48px; text-align: center; color: var(--text-muted); font-size: 14px; line-height: 1.6; }
+
+  .posts-section { margin-top: 36px; }
+  .posts-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .posts-table th {
+    text-align: left; font-size: 11px; font-weight: 600;
+    color: var(--text-muted); text-transform: uppercase; letter-spacing: .4px;
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+  }
+  .posts-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .posts-table tr:last-child td { border-bottom: none; }
+  .posts-table tr:hover td { background: var(--surface-1); }
+  .posts-table .username { font-weight: 500; }
+  .posts-table .views-val { font-weight: 600; }
+  .posts-table a { color: var(--accent); text-decoration: none; }
+  .posts-table a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -130,7 +167,7 @@
 <header>
   <div class="nav">
     <a href="/">Dashboard</a>
-    <a href="/campaigns">Campaigns</a>
+    <a href="/campaigns" class="active">Campaigns</a>
     <a href="/songs">Songs</a>
     <a href="/artists">Artists</a>
     <a href="/sounds">Sound lookup</a>
@@ -154,7 +191,7 @@
         <option value="In Progress">In Progress</option>
         <option value="Wrapped">Wrapped</option>
       </select>
-      <button onclick="deleteThisCampaign()" style="background:none; border:1px solid var(--border); color:var(--danger);" title="Delete campaign">Delete</button>
+      <button class="btn-danger" onclick="deleteThisCampaign()">Delete</button>
     </div>
   </div>
 
@@ -166,20 +203,23 @@
     <div class="stat-box"><div class="label">Avg engagement</div><div class="value" id="stat-eng">-</div></div>
   </div>
 
-  <div id="status"></div>
-
   <div class="section-label">Songs</div>
   <div class="add-card">
-    <div class="add-label">Add a song — we'll find and pull in every sound for it automatically. Include the artist for better matches, e.g. "Griddle Yeat"</div>
+    <div class="add-label">Add a song — we'll find every TikTok sound for it automatically. e.g. "Griddle Yeat"</div>
     <div class="add-row">
       <input type="text" id="song-name-input" placeholder="Song name + artist, e.g. Griddle Yeat">
-      <button onclick="addSong()" id="add-song-btn">Add song</button>
+      <button class="btn-primary" onclick="addSong()" id="add-song-btn">Add song</button>
     </div>
     <div id="add-song-error"></div>
-    <div id="add-song-status" style="font-size:13px; color:var(--text-muted); margin-top:8px;"></div>
+    <div id="add-song-status"></div>
   </div>
 
   <div class="songs-grid" id="songs-grid"></div>
+
+  <div class="posts-section">
+    <div class="section-label" style="margin-top:36px;">Top Posts</div>
+    <div id="posts-container"></div>
+  </div>
 </main>
 
 <script>
@@ -189,6 +229,7 @@ let songsData = [];
 
 function fmt(n) {
   if (n == null || isNaN(n)) return '-';
+  if (n >= 1e9) return (n/1e9).toFixed(1) + 'B';
   if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
   if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
   return String(n);
@@ -205,13 +246,17 @@ function escapeHtml(str) {
 
 async function load() {
   try {
-    const res = await fetch(`/api/campaigns/${campaignId}/posts`);
-    const data = await res.json();
-    if (!res.ok) {
-      document.getElementById('campaign-title').textContent = data.error || 'Campaign not found';
+    const [postsRes, songsRes] = await Promise.all([
+      fetch(`/api/campaigns/${campaignId}/posts`),
+      fetch(`/api/campaigns/${campaignId}/songs`)
+    ]);
+    const postsData = await postsRes.json();
+    if (!postsRes.ok) {
+      document.getElementById('campaign-title').textContent = postsData.error || 'Campaign not found';
       return;
     }
-    campaignData = data.campaign;
+    campaignData = postsData.campaign;
+    songsData = songsRes.ok ? await songsRes.json() : [];
 
     document.getElementById('campaign-title').textContent = campaignData.name;
     document.getElementById('campaign-artist').textContent = campaignData.artist || '';
@@ -227,60 +272,72 @@ async function load() {
     document.getElementById('status-pill-text').textContent = campaignData.status;
     pillEl.style.display = 'inline-flex';
 
-    await loadSongs();
-    document.getElementById('status').textContent = '';
-  } catch (e) {
-    document.getElementById('status').textContent = 'Could not reach the server.';
-  }
-}
-
-async function loadSongs() {
-  try {
-    const res = await fetch(`/api/campaigns/${campaignId}/songs`);
-    songsData = await res.json();
     renderSongs();
-    renderOverviewStats();
+    renderOverviewStats(postsData.posts || []);
+    renderPosts(postsData.posts || []);
   } catch (e) {
-    document.getElementById('songs-grid').innerHTML = '<div class="empty">Could not load songs.</div>';
+    console.error(e);
   }
 }
 
-function renderOverviewStats() {
-  let totalViews = 0, totalLikes = 0, totalComments = 0, totalSaves = 0;
-  const allCreators = new Set();
+function renderOverviewStats(posts) {
+  const totalViews = posts.reduce((s, p) => s + (parseInt(p.views) || 0), 0);
+  const totalLikes = posts.reduce((s, p) => s + (parseInt(p.likes) || 0), 0);
+  const creators = new Set(posts.map(p => p.username)).size;
 
-  songsData.forEach(song => {
-    song.sounds.forEach(snd => {
-      totalViews += parseInt(snd.views) || 0;
-      totalLikes += parseInt(snd.likes) || 0;
-    });
-  });
-
-  document.getElementById('stat-songs').textContent = songsData.length;
+  document.getElementById('stat-songs').textContent = songsData.length || '-';
   document.getElementById('stat-views').textContent = fmt(totalViews);
-  // Creators and engagement need post-level data; approximate from songs list for now
-  document.getElementById('stat-creators').textContent = songsData.reduce((sum, s) => sum + (s.creator_count || 0), 0) || '-';
+  document.getElementById('stat-creators').textContent = creators || '-';
   const avgEng = totalViews > 0 ? totalLikes / totalViews : 0;
   document.getElementById('stat-eng').textContent = pct(avgEng);
 }
 
 function renderSongs() {
   const grid = document.getElementById('songs-grid');
-  if (songsData.length === 0) {
+  if (!songsData || songsData.length === 0) {
     grid.innerHTML = '<div class="empty">No songs added yet.<br><span style="font-size:13px;">Add one above to get started.</span></div>';
     return;
   }
-  grid.innerHTML = songsData.map(s => {
-    const totalViews = s.sounds.reduce((sum, snd) => sum + (parseInt(snd.views) || 0), 0);
-    const totalPosts = s.sounds.reduce((sum, snd) => sum + (parseInt(snd.post_count) || 0), 0);
-    return `
-      <div class="song-card" onclick="window.location.href='/song/${s.id}'">
-        <div class="name">${escapeHtml(s.name)}</div>
-        <div class="meta">${s.sounds.length} sound${s.sounds.length === 1 ? '' : 's'} · ${totalPosts} posts</div>
-        <div class="views">${fmt(totalViews)} views</div>
-      </div>
-    `;
-  }).join('');
+  grid.innerHTML = songsData.map(s => `
+    <div class="song-card" onclick="window.location.href='/song/${s.id}'">
+      <button class="delete-btn" onclick="event.stopPropagation(); deleteSong(${s.id}, '${escapeHtml(s.name)}')" title="Remove song">×</button>
+      <div class="name">${escapeHtml(s.name)}</div>
+      <div class="artist">${escapeHtml(s.artist || '')}</div>
+      <div class="views">${fmt(s.total_views || 0)}</div>
+      <div class="meta">${s.post_count || 0} posts</div>
+    </div>
+  `).join('');
+}
+
+function renderPosts(posts) {
+  const container = document.getElementById('posts-container');
+  if (!posts || posts.length === 0) {
+    container.innerHTML = '<div class="empty" style="padding:24px;">No posts tracked yet.</div>';
+    return;
+  }
+  const top = posts.slice(0, 20);
+  container.innerHTML = `
+    <table class="posts-table">
+      <thead>
+        <tr>
+          <th>Creator</th>
+          <th>Views</th>
+          <th>Likes</th>
+          <th>Link</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${top.map(p => `
+          <tr>
+            <td class="username">@${escapeHtml(p.username)}</td>
+            <td class="views-val">${fmt(p.views)}</td>
+            <td>${fmt(p.likes)}</td>
+            <td><a href="https://tiktok.com/@${escapeHtml(p.username)}/video/${escapeHtml(p.post_id)}" target="_blank">↗</a></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
 }
 
 async function addSong() {
@@ -297,6 +354,7 @@ async function addSong() {
   statusEl.textContent = 'Finding sounds for this song — this can take a moment...';
 
   try {
+    // Create the song globally
     const res = await fetch(`/api/songs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -307,9 +365,15 @@ async function addSong() {
       errEl.textContent = data.error || 'Something went wrong.';
       statusEl.textContent = '';
     } else {
+      // Link the song to this campaign
+      await fetch(`/api/campaigns/${campaignId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ song_id: data.song_id })
+      });
       input.value = '';
-      statusEl.textContent = `Found and added ${data.sounds_found} sound${data.sounds_found === 1 ? '' : 's'}.`;
-      await loadSongs();
+      statusEl.textContent = `Added "${name}" with ${data.sounds_found} sound${data.sounds_found === 1 ? '' : 's'}.`;
+      await load();
     }
   } catch (e) {
     errEl.textContent = 'Could not reach the server.';
@@ -318,6 +382,12 @@ async function addSong() {
 
   btn.disabled = false;
   btn.textContent = 'Add song';
+}
+
+async function deleteSong(songId, songName) {
+  if (!confirm(`Remove "${songName}" from this campaign?`)) return;
+  await fetch(`/api/songs/${songId}`, { method: 'DELETE' });
+  await load();
 }
 
 async function updateStatus() {
@@ -343,6 +413,5 @@ document.getElementById('song-name-input').addEventListener('keydown', e => {
 
 load();
 </script>
-
 </body>
 </html>

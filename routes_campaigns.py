@@ -64,6 +64,19 @@ def campaigns():
         r["created_at"] = str(r["created_at"])
     return jsonify(rows)
 
+@campaigns_bp.route("/api/campaigns/<int:campaign_id>", methods=["PATCH"])
+def update_campaign(campaign_id):
+    data = request.get_json(silent=True)
+    if data is None:
+        return jsonify({"error": "Invalid JSON"}), 400
+    song_id = data.get("song_id")
+    if song_id:
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute("UPDATE campaigns SET song_id=%s WHERE id=%s", (song_id, campaign_id))
+            conn.commit()
+    return jsonify({"ok": True})
+
 
 @campaigns_bp.route("/api/campaigns/<int:campaign_id>", methods=["DELETE"])
 def delete_campaign(campaign_id):
