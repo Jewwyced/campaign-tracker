@@ -147,7 +147,7 @@ async function load() {
   const data = await res.json();
   const song = data.song;
   const sounds = data.sounds || [];
-  const posts = data.posts || [];
+  const posts = data.top_posts || [];
 
   document.title = song.name;
   document.getElementById('song-title').textContent = song.name;
