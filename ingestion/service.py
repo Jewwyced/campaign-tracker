@@ -4,32 +4,12 @@ ingestion/service.py — Layer 3: service / orchestration.
 Owns all business logic and database writes. Calls parsers to get clean
 data, then decides what to write to Neon and what to return.
 
-This file decides WHAT happens — which rows to insert/upsert, what to
-return to callers, what counts as success or failure. It does not know
-or care how providers work internally (that's providers.py) or how to
-parse their responses (that's parsers.py).
-
-Public functions:
-  - discover_sounds(query)
-  - create_sound(db_conn_factory, song_id, sound)
-  - ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id)
-  - discover_song_sounds(db_conn_factory, song_id, title, artist)
-  - refresh_song_sounds(db_conn_factory, song_id)
-  - ingest_roster_account(db_conn_factory, username)
-  - ingest_fan_account(db_conn_factory, username)
-  - ingest_single_post(db_conn_factory, post_id, username)
-  - ingest_campaign_attached_sound(db_conn_factory, campaign_id, tiktok_sound_id)
-
 Known deferred improvements:
   - song_id parameter on ingest_sound() is now unused — legacy, kept for
     backward compatibility with existing callers
-  - _update_sound_video_count() and _ingest_sound_posts() still combine
-    fetching, parsing, and persistence — acceptable for now, worth splitting
-    when they grow more complex
   - Cache freshness only implemented for sounds — roster accounts, fan
     accounts, and single posts still always hit the provider pipeline
-  - Result objects are not yet standardized across all functions — ingest_sound
-    returns a rich dict, other functions return True/False or a list
+  - Result objects are not yet standardized across all functions
 """
 
 from datetime import date, datetime, timezone
@@ -45,7 +25,7 @@ from .parsers import (
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-SOUND_FRESHNESS_HOURS = 6  # skip re-ingestion if sound was ingested within this window
+SOUND_FRESHNESS_HOURS = 6
 
 SOURCE_CACHE    = "cache"
 SOURCE_TIKAPI   = "tikapi"
@@ -59,8 +39,7 @@ def _log(msg):
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _is_sound_fresh(db_conn_factory, sound_db_id):
-    """Check whether a sound's cached data is fresh enough to skip re-ingestion.
-    Returns (is_fresh, age_hours) — age_hours is None if never ingested."""
+    """Check whether a sound's cached data is fresh enough to skip re-ingestion."""
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("SELECT last_ingested_at FROM sounds WHERE id=%s", (sound_db_id,))
@@ -85,12 +64,79 @@ def _touch_sound_ingested(db_conn_factory, sound_db_id):
         conn.commit()
 
 
+import re as _re
+
+def _normalize_str(s):
+    """Lowercase, remove punctuation and extra spaces for comparison."""
+    return _re.sub(r'[^a-z0-9 ]', ' ', (s or "").lower()).strip()
+
+def _score_sound(sound, title, artist):
+    """Score a sound candidate by relevance to the song title and artist.
+    Higher score = better match. Used to rank sounds before taking the top 5.
+
+    NOTE: video_count is NOT scored here because search APIs don't return it.
+    It is fetched later via _update_sound_video_count() after sounds are selected.
+
+    Scoring priority:
+    1. Exact title match
+    2. Title contained in sound title
+    3. Multiple significant words match (2+ words, avoids single-word false positives)
+    4. Verified artist match (normalized, punctuation-stripped)
+    5. Official/original sound bonus
+    6. Penalties for derivative versions
+    """
+    score = 0
+    sound_title = _normalize_str(sound.get("title"))
+    sound_author = _normalize_str(sound.get("author"))
+    title_norm = _normalize_str(title)
+    artist_norm = _normalize_str(artist) if artist else ""
+
+    # Title matching
+    if sound_title == title_norm:
+        score += 150  # exact match
+    elif title_norm in sound_title:
+        score += 100  # title contained in sound title
+    else:
+        # Require 2+ significant words to match (avoids single common word false positives)
+        sig_words = [w for w in title_norm.split() if len(w) > 3]
+        matches = sum(1 for w in sig_words if w in sound_title)
+        if len(sig_words) >= 2 and matches >= 2:
+            score += 40
+
+    # Artist matching — normalize punctuation before comparing
+    if artist_norm:
+        author_words = set(sound_author.split())
+        artist_words = set(artist_norm.split())
+        if sound_author == artist_norm:
+            score += 100  # exact match
+        elif artist_words.issubset(author_words):
+            score += 75   # all artist words present in author
+        elif any(w in author_words for w in artist_words):
+            score += 30   # partial match only
+
+    # Official/original sound bonus
+    if sound.get("is_original"):
+        score += 50
+
+    # Penalties for derivative versions
+    penalties = [
+        "sped up", "slowed", "remix", "instrumental", "reverb", "cover",
+        "nightcore", "bass boosted", "8d", "phonk", "edit audio", "mashup",
+        "loop", "extended", "sped-up", "slow reverb", "lyrics"
+    ]
+    for word in penalties:
+        if word in sound_title:
+            score -= 30
+
+    return score
+
+
 def _update_sound_video_count(db_conn_factory, sound_db_id, tiktok_sound_id):
     """Pull a sound's true total video count and write today's snapshot."""
     raw = provider.get_sound_info(tiktok_sound_id)
     info = parse_sound_info(raw)
     if not info:
-        return {"video_count_updated": False, "error": "music/info call failed — see logs above for status code"}
+        return {"video_count_updated": False, "error": "music/info call failed"}
 
     video_count = info.get("video_count")
     if video_count is None:
@@ -180,15 +226,29 @@ def create_sound(db_conn_factory, song_id, sound):
     return row["id"] if row else None
 
 
+def get_or_create_sound(db_conn_factory, song_id, sound):
+    """Get existing sound or create new one. Always returns a db id.
+    Unlike create_sound, this never returns None — existing sounds are returned
+    so callers can always ingest/refresh them regardless of whether they're new."""
+    with db_conn_factory() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                INSERT INTO sounds (song_id, sound_id, title, author, status)
+                VALUES (%s,%s,%s,%s,'approved')
+                ON CONFLICT (song_id, sound_id) DO UPDATE SET
+                    title=EXCLUDED.title,
+                    author=EXCLUDED.author
+                RETURNING id
+            """, (song_id, sound["sound_id"], sound["title"], sound["author"]))
+            row = c.fetchone()
+        conn.commit()
+    return row["id"] if row else None
+
+
 def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_results=30):
     """Refresh one Sound's posts and video-count snapshot.
-    Checks cache first — skips the provider pipeline entirely if data is fresh.
-
-    Note: song_id is kept for backward compatibility but is currently unused.
-    """
+    Checks cache first — skips the provider pipeline if data is fresh."""
     is_fresh, age_hours = _is_sound_fresh(db_conn_factory, sound_db_id)
-    is_fresh, age_hours = _is_sound_fresh(db_conn_factory, sound_db_id)
-    _log(f"cache check sound={sound_db_id} fresh={is_fresh} age={age_hours}")
     if is_fresh:
         _log(f"sound {sound_db_id} is fresh ({age_hours:.1f}h old) — skipping provider pipeline")
         return {
@@ -213,7 +273,6 @@ def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_res
     result.update(stats_result)
     result["posts_added"] = _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_results)
 
-    # Update timestamp so the next call can use the cache
     if not result.get("error"):
         _touch_sound_ingested(db_conn_factory, sound_db_id)
 
@@ -221,13 +280,38 @@ def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_res
 
 
 def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
-    """Find every TikTok sound for a Song and ingest each one."""
+    """Find the top 5 most relevant TikTok sounds for a Song and ingest each one."""
     query = f"{title} {artist}".strip()
-    found_sounds = discover_sounds(query)[:5]  # top 5 sounds only
+    all_sounds = discover_sounds(query)
+
+    # Deduplicate by sound_id before scoring
+    seen_ids = set()
+    unique_sounds = []
+    for s in all_sounds:
+        sid = s.get("sound_id")
+        if sid and sid not in seen_ids:
+            seen_ids.add(sid)
+            unique_sounds.append(s)
+
+    # Score and rank by relevance, then take top 5
+    ranked_sounds = sorted(
+        unique_sounds,
+        key=lambda s: _score_sound(s, title, artist),
+        reverse=True
+    )[:5]
+
+    _log(f"discover_song_sounds: {len(all_sounds)} found -> {len(unique_sounds)} unique -> top {len(ranked_sounds)} selected")
+
+    # Log scores for debugging
+    for i, s in enumerate(ranked_sounds):
+        score = _score_sound(s, title, artist)
+        _log(f"  #{i+1} '{s.get('title')}' by '{s.get('author')}' — score {score}")
+
     results = []
-    for s in found_sounds:
+    for s in ranked_sounds:
         try:
-            sound_db_id = create_sound(db_conn_factory, song_id, s)
+            # Always get or create — so existing sounds get refreshed too
+            sound_db_id = get_or_create_sound(db_conn_factory, song_id, s)
             if sound_db_id:
                 ingest_result = ingest_sound(db_conn_factory, song_id, sound_db_id, s["sound_id"], max_results=30)
                 results.append({**s, **ingest_result})
