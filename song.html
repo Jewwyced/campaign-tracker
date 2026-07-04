@@ -5,89 +5,117 @@
 <title>Song</title>
 <style>
   :root {
-    --bg: #ffffff;
-    --surface-1: #f7f7f8;
-    --surface-2: #f0f0f2;
+    --bg: #fafafa;
+    --surface: #ffffff;
     --border: #e4e4e7;
-    --text-primary: #18181b;
+    --border-light: #f0f0f2;
+    --text-primary: #09090b;
     --text-secondary: #52525b;
     --text-muted: #a1a1aa;
     --accent: #6366f1;
     --accent-dim: #4f46e5;
+    --accent-light: #eef2ff;
+    --success: #059669;
     --success-bg: #ecfdf5;
-    --success-text: #059669;
     --danger: #dc2626;
     --danger-bg: #fef2f2;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  header { display: flex; align-items: center; padding: 0 32px; border-bottom: 1px solid var(--border); height: 52px; }
+
+  header { display: flex; align-items: center; padding: 0 32px; border-bottom: 1px solid var(--border); height: 52px; background: white; }
   header .nav a { font-size: 13px; color: var(--text-secondary); text-decoration: none; margin-right: 20px; }
   header .nav a:hover { color: var(--text-primary); }
   header .nav a.active { color: var(--text-primary); font-weight: 600; border-bottom: 2px solid var(--accent); padding-bottom: 2px; }
-  main { padding: 28px 32px; max-width: 1100px; margin: 0 auto; }
 
-  .breadcrumb { font-size: 13px; margin-bottom: 20px; }
-  .breadcrumb a { color: var(--text-muted); text-decoration: none; }
-  .breadcrumb a:hover { color: var(--text-primary); }
+  main { padding: 32px; max-width: 1280px; margin: 0 auto; }
+  .breadcrumb { font-size: 13px; margin-bottom: 24px; }
+  .breadcrumb a { color: var(--text-muted); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+  .breadcrumb a:hover { color: var(--text-secondary); }
 
-  .song-header { margin-bottom: 32px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
-  .song-title { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
-  .song-artist { font-size: 15px; color: var(--text-muted); margin-top: 6px; }
+  .song-header { margin-bottom: 28px; padding-bottom: 24px; border-bottom: 1px solid var(--border-light); }
+  .song-title { font-size: 30px; font-weight: 800; letter-spacing: -0.8px; }
+  .song-artist { font-size: 14px; color: var(--text-muted); margin-top: 5px; font-weight: 500; }
 
-  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 36px; }
-  .stat-box { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
-  .stat-box .label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
-  .stat-box .value { font-size: 28px; font-weight: 700; margin-top: 6px; letter-spacing: -0.5px; }
-  .stat-box .value.green { color: var(--success-text); }
-
-  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-  .section-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
-
-  .sort-btn {
-    font-size: 12px; font-family: inherit;
-    padding: 5px 12px; border-radius: 6px;
-    border: 1px solid var(--border);
-    background: none; color: var(--text-secondary);
-    cursor: pointer;
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 32px; }
+  .stat-box {
+    background: white; border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px 22px;
+    transition: box-shadow .15s;
   }
-  .sort-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
-  .sort-btns { display: flex; gap: 6px; }
+  .stat-box:hover { box-shadow: 0 2px 12px rgba(0,0,0,.06); }
+  .stat-box .label { font-size: 11px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
+  .stat-box .value { font-size: 28px; font-weight: 800; margin-top: 8px; letter-spacing: -0.5px; }
+  .stat-box .value.accent { color: var(--accent); }
 
-  .posts-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 36px; }
+  .section-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .section-title { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+
+  .filter-group { display: flex; gap: 4px; background: var(--border-light); padding: 3px; border-radius: 10px; }
+  .filter-btn {
+    font-size: 12px; font-family: inherit; font-weight: 500;
+    padding: 5px 14px; border-radius: 7px;
+    border: none; background: none; color: var(--text-secondary);
+    cursor: pointer; transition: all .15s;
+  }
+  .filter-btn.active { background: white; color: var(--text-primary); box-shadow: 0 1px 4px rgba(0,0,0,.1); font-weight: 600; }
+
+  .posts-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 40px; }
+  @media (max-width: 1100px) { .posts-grid { grid-template-columns: repeat(4, 1fr); } }
+
   .post-card {
-    border-radius: 10px; overflow: hidden; border: 1px solid var(--border);
-    cursor: pointer; transition: transform .15s, box-shadow .15s;
+    border-radius: 12px; overflow: hidden;
+    background: white; border: 1px solid var(--border);
+    cursor: pointer; transition: transform .2s, box-shadow .2s;
     text-decoration: none; color: inherit; display: block;
   }
-  .post-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,.1); }
-  .post-thumb { width: 100%; aspect-ratio: 9/16; object-fit: cover; background: var(--surface-2); display: block; }
-  .post-thumb-placeholder {
-    width: 100%; aspect-ratio: 9/16;
-    background: linear-gradient(135deg, #e0e0e8, #f0f0f4);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 32px; color: var(--text-muted);
-  }
-  .post-info { padding: 10px 12px; }
-  .post-username { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
-  .post-views { font-size: 18px; font-weight: 700; margin-top: 4px; letter-spacing: -0.3px; }
-  .post-likes { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .post-card:hover { transform: translateY(-4px); box-shadow: 0 8px 24px rgba(0,0,0,.1); border-color: transparent; }
 
-  .sounds-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 36px; }
+  .post-thumb-wrap { position: relative; width: 100%; aspect-ratio: 9/16; overflow: hidden; background: var(--border-light); }
+  .post-thumb { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .3s; }
+  .post-card:hover .post-thumb { transform: scale(1.03); }
+  .post-thumb-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 32px; color: var(--text-muted); background: linear-gradient(135deg, #f0f0f4, #e8e8ec); }
+
+  .post-date-badge {
+    position: absolute; bottom: 8px; left: 8px;
+    background: rgba(0,0,0,.65); color: white;
+    font-size: 10px; font-weight: 600;
+    padding: 3px 8px; border-radius: 6px;
+    backdrop-filter: blur(6px);
+  }
+  .post-overlay {
+    position: absolute; top: 8px; right: 8px;
+    background: rgba(0,0,0,.55); color: white;
+    font-size: 11px; font-weight: 700;
+    padding: 3px 8px; border-radius: 6px;
+    backdrop-filter: blur(4px);
+  }
+
+  .post-info { padding: 10px 12px 12px; }
+  .post-username { font-size: 11px; font-weight: 600; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .post-views { font-size: 17px; font-weight: 800; margin-top: 3px; letter-spacing: -0.4px; color: var(--text-primary); }
+  .post-likes { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+  .sounds-section { margin-top: 8px; }
+  .sounds-list { display: flex; flex-direction: column; gap: 8px; }
   .sound-row {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 12px 16px; border-radius: 10px;
-    border: 1px solid var(--border); background: var(--surface-1);
+    padding: 14px 18px; border-radius: 12px;
+    border: 1px solid var(--border); background: white;
+    transition: border-color .15s, box-shadow .15s;
   }
-  .sound-name { font-size: 14px; font-weight: 500; }
-  .sound-author { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
-  .sound-count { font-size: 15px; font-weight: 700; color: var(--success-text); }
-  .sound-count-lbl { font-size: 11px; color: var(--text-muted); }
-  .delete-btn { background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; padding: 4px 8px; border-radius: 6px; }
+  .sound-row:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(99,102,241,.08); }
+  .sound-name { font-size: 14px; font-weight: 600; }
+  .sound-author { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+  .sound-count { font-size: 18px; font-weight: 800; color: var(--success); }
+  .sound-count-lbl { font-size: 11px; color: var(--text-muted); text-align: right; }
+  .delete-btn { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; padding: 6px 8px; border-radius: 8px; margin-left: 12px; }
   .delete-btn:hover { background: var(--danger-bg); color: var(--danger); }
 
-  .empty { padding: 48px; text-align: center; color: var(--text-muted); font-size: 14px; line-height: 1.8; }
-  .loading { padding: 48px; text-align: center; color: var(--text-muted); font-size: 14px; }
+  .empty { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 14px; line-height: 1.8; }
+  .loading { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 14px; }
+  .no-results { padding: 40px 20px; text-align: center; color: var(--text-muted); font-size: 14px; }
+  .no-results strong { display: block; font-size: 16px; color: var(--text-secondary); margin-bottom: 6px; }
 </style>
 </head>
 <body>
@@ -102,7 +130,7 @@
 </header>
 
 <main>
-  <div class="breadcrumb"><a href="/campaigns">&larr; Back to campaigns</a></div>
+  <div class="breadcrumb"><a href="/campaigns">← Back to campaigns</a></div>
 
   <div class="song-header">
     <div class="song-title" id="song-title">Loading...</div>
@@ -110,31 +138,35 @@
   </div>
 
   <div class="stat-row">
-    <div class="stat-box"><div class="label">Total views</div><div class="value green" id="stat-views">-</div></div>
-    <div class="stat-box"><div class="label">Sounds</div><div class="value" id="stat-sounds">-</div></div>
-    <div class="stat-box"><div class="label">Creators</div><div class="value" id="stat-creators">-</div></div>
-    <div class="stat-box"><div class="label">Posts tracked</div><div class="value" id="stat-posts">-</div></div>
+    <div class="stat-box"><div class="label">Total Views</div><div class="value accent" id="stat-views">—</div></div>
+    <div class="stat-box"><div class="label">Sounds</div><div class="value" id="stat-sounds">—</div></div>
+    <div class="stat-box"><div class="label">Creators</div><div class="value" id="stat-creators">—</div></div>
+    <div class="stat-box"><div class="label">Posts Tracked</div><div class="value" id="stat-posts">—</div></div>
   </div>
 
-  <div class="section-header">
-    <div class="section-label">Top Posts</div>
-    <div class="sort-btns">
-      <button class="sort-btn active" id="sort-views" onclick="setSortBy('views')">Most Popular</button>
-      <button class="sort-btn" id="sort-date" onclick="setSortBy('date')">Most Recent</button>
+  <div class="section-row">
+    <div class="section-title">Posts</div>
+    <div class="filter-group">
+      <button class="filter-btn active" id="f-popular" onclick="setFilter('popular')">Most Popular</button>
+      <button class="filter-btn" id="f-recent" onclick="setFilter('recent')">Most Recent</button>
+      <button class="filter-btn" id="f-week" onclick="setFilter('week')">This Week</button>
+      <button class="filter-btn" id="f-today" onclick="setFilter('today')">Today</button>
     </div>
   </div>
   <div class="posts-grid" id="posts-grid"><div class="loading">Loading posts...</div></div>
 
-  <div class="section-header" style="margin-top: 8px;">
-    <div class="section-label">Sounds</div>
+  <div class="sounds-section">
+    <div class="section-row">
+      <div class="section-title">Sounds</div>
+    </div>
+    <div class="sounds-list" id="sounds-list"><div class="loading">Loading...</div></div>
   </div>
-  <div class="sounds-list" id="sounds-list"><div class="loading">Loading sounds...</div></div>
 </main>
 
 <script>
 const songId = window.location.pathname.split('/').pop();
 let allPosts = [];
-let sortBy = 'views';
+let currentFilter = 'popular';
 
 function fmt(n) {
   if (n == null || isNaN(n)) return '0';
@@ -148,30 +180,64 @@ function escapeHtml(str) {
   div.textContent = str || '';
   return div.innerHTML;
 }
+function formatDate(ts) {
+  if (!ts) return '';
+  const d = new Date(parseInt(ts) * 1000);
+  const now = new Date();
+  const diff = Math.floor((now - d) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  if (diff < 7) return d.toLocaleDateString('en-US', { weekday: 'short' });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+function isToday(ts) {
+  if (!ts) return false;
+  const d = new Date(parseInt(ts) * 1000);
+  return d.toDateString() === new Date().toDateString();
+}
+function isThisWeek(ts) {
+  if (!ts) return false;
+  return (Date.now() - new Date(parseInt(ts) * 1000)) < 7 * 86400000;
+}
 
-function setSortBy(type) {
-  sortBy = type;
-  document.getElementById('sort-views').className = 'sort-btn' + (type === 'views' ? ' active' : '');
-  document.getElementById('sort-date').className = 'sort-btn' + (type === 'date' ? ' active' : '');
+function setFilter(filter) {
+  currentFilter = filter;
+  ['popular','recent','week','today'].forEach(f => {
+    document.getElementById(`f-${f}`).className = 'filter-btn' + (f === filter ? ' active' : '');
+  });
   renderPostsGrid();
 }
 
 function renderPostsGrid() {
-  const postsGrid = document.getElementById('posts-grid');
-  if (!allPosts || allPosts.length === 0) {
-    postsGrid.innerHTML = '<div class="empty">No posts yet.<br>Posts will appear here after the next refresh.</div>';
+  const grid = document.getElementById('posts-grid');
+  if (!allPosts.length) {
+    grid.innerHTML = '<div class="empty">No posts yet. Posts will appear after the next refresh.</div>';
     return;
   }
-  const sorted = [...allPosts].sort((a, b) => {
-    if (sortBy === 'date') return (parseInt(b.created_at) || 0) - (parseInt(a.created_at) || 0);
-    return (parseInt(b.views) || 0) - (parseInt(a.views) || 0);
-  });
-  postsGrid.innerHTML = sorted.slice(0, 20).map(p => `
+
+  let posts = [...allPosts];
+  if (currentFilter === 'today') posts = posts.filter(p => isToday(p.created_at));
+  else if (currentFilter === 'week') posts = posts.filter(p => isThisWeek(p.created_at));
+
+  if (['recent','today','week'].includes(currentFilter)) {
+    posts.sort((a,b) => (parseInt(b.created_at)||0) - (parseInt(a.created_at)||0));
+  } else {
+    posts.sort((a,b) => (parseInt(b.views)||0) - (parseInt(a.views)||0));
+  }
+
+  if (!posts.length) {
+    grid.innerHTML = '<div class="no-results"><strong>No posts found</strong>Try a different time period.</div>';
+    return;
+  }
+
+  grid.innerHTML = posts.slice(0,20).map(p => `
     <a class="post-card" href="https://tiktok.com/@${escapeHtml(p.username)}/video/${escapeHtml(p.post_id)}" target="_blank">
-      ${p.thumbnail
-        ? `<img class="post-thumb" src="${escapeHtml(p.thumbnail)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
-        : ''}
-      <div class="post-thumb-placeholder" ${p.thumbnail ? 'style="display:none"' : ''}>🎵</div>
+      <div class="post-thumb-wrap">
+        ${p.thumbnail ? `<img class="post-thumb" src="${escapeHtml(p.thumbnail)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">` : ''}
+        <div class="post-thumb-placeholder" ${p.thumbnail?'style="display:none"':''}>🎵</div>
+        <div class="post-overlay">${fmt(p.views)}</div>
+        ${p.created_at ? `<div class="post-date-badge">${formatDate(p.created_at)}</div>` : ''}
+      </div>
       <div class="post-info">
         <div class="post-username">@${escapeHtml(p.username)}</div>
         <div class="post-views">${fmt(p.views)}</div>
@@ -183,54 +249,42 @@ function renderPostsGrid() {
 
 async function load() {
   const res = await fetch(`/api/songs/${songId}/detail`);
-  if (!res.ok) {
-    document.getElementById('song-title').textContent = 'Song not found';
-    return;
-  }
+  if (!res.ok) { document.getElementById('song-title').textContent = 'Song not found'; return; }
   const data = await res.json();
   const song = data.song;
   const sounds = data.sounds || [];
-  const posts = data.top_posts || [];
 
   document.title = song.name;
   document.getElementById('song-title').textContent = song.name;
   document.getElementById('song-artist').textContent = song.artist || '';
-
-  const totalViews = data.header_stats?.views || 0;
-  const creators = data.header_stats?.creator_count || 0;
-
-  document.getElementById('stat-views').textContent = fmt(totalViews);
+  document.getElementById('stat-views').textContent = fmt(data.header_stats?.views || 0);
   document.getElementById('stat-sounds').textContent = sounds.length;
-  document.getElementById('stat-creators').textContent = creators;
+  document.getElementById('stat-creators').textContent = data.header_stats?.creator_count || 0;
   document.getElementById('stat-posts').textContent = data.header_stats?.post_count || 0;
 
-  allPosts = posts;
+  allPosts = data.top_posts || [];
   renderPostsGrid();
 
-  // Sounds list
-  const soundsList = document.getElementById('sounds-list');
-  if (sounds.length === 0) {
-    soundsList.innerHTML = '<div class="empty">No sounds tracked yet.</div>';
-  } else {
-    soundsList.innerHTML = sounds.map(s => `
+  const sl = document.getElementById('sounds-list');
+  sl.innerHTML = !sounds.length ? '<div class="empty">No sounds tracked yet.</div>' :
+    sounds.map(s => `
       <div class="sound-row">
-        <div>
-          <div class="sound-name">${escapeHtml(s.title || 'Unknown sound')}</div>
-          <div class="sound-author">${escapeHtml(s.author || '')}</div>
+        <div style="flex:1;min-width:0;">
+          <div class="sound-name">${escapeHtml(s.title||'Unknown sound')}</div>
+          <div class="sound-author">${escapeHtml(s.author||'')}</div>
         </div>
-        <div style="text-align:right;">
+        <div style="text-align:right;margin-right:8px;">
           <div class="sound-count">${fmt(s.current_video_count)}</div>
           <div class="sound-count-lbl">videos</div>
         </div>
-        <button class="delete-btn" onclick="deleteSound(${s.id})" title="Remove sound">×</button>
+        <button class="delete-btn" onclick="event.preventDefault();deleteSound(${s.id})">×</button>
       </div>
     `).join('');
-  }
 }
 
-async function deleteSound(soundId) {
+async function deleteSound(id) {
   if (!confirm('Remove this sound?')) return;
-  await fetch(`/api/sounds/${soundId}`, { method: 'DELETE' });
+  await fetch(`/api/sounds/${id}`, {method:'DELETE'});
   load();
 }
 
