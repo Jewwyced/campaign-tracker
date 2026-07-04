@@ -1,10 +1,8 @@
 """
-routes_campaigns.py — the Campaigns feature (marketing efforts, not organic tracking).
+routes_campaigns.py — the Campaigns feature.
 
-A Campaign is a time-boxed marketing push, optionally referencing a Song
-(via song_id) and/or directly tracking manually-pasted posts and an
-attached sound (the older, pre-Songs-restructure mechanism, kept for
-backward compatibility).
+A Campaign is a time-boxed marketing push, optionally referencing Songs
+via campaign_songs join table. Posts flow through Song → Sound → Post chain.
 """
 
 import re
@@ -55,14 +53,27 @@ def campaigns():
             conn.commit()
         return jsonify({"ok": True, "id": new_id})
 
+    # GET — aggregate post counts and views through campaign_songs chain
     with db() as conn:
         with conn.cursor() as c:
-            c.execute("SELECT * FROM campaigns ORDER BY created_at DESC")
+            c.execute("""
+                SELECT
+                    c.*,
+                    COUNT(DISTINCT p.post_id) as post_count,
+                    COALESCE(SUM(p.views), 0) as total_views
+                FROM campaigns c
+                LEFT JOIN campaign_songs cs ON cs.campaign_id = c.id
+                LEFT JOIN sounds snd ON snd.song_id = cs.song_id
+                LEFT JOIN posts p ON p.sound_db_id = snd.id
+                GROUP BY c.id
+                ORDER BY c.created_at DESC
+            """)
             rows = [dict(r) for r in c.fetchall()]
     for r in rows:
         r["start_date"] = str(r["start_date"])
         r["created_at"] = str(r["created_at"])
     return jsonify(rows)
+
 
 @campaigns_bp.route("/api/campaigns/<int:campaign_id>", methods=["PATCH"])
 def update_campaign(campaign_id):
@@ -90,6 +101,7 @@ def delete_campaign(campaign_id):
             c.execute("SELECT 1 FROM campaigns WHERE id=%s", (campaign_id,))
             if not c.fetchone():
                 return jsonify({"error": f"Campaign {campaign_id} doesn't exist"}), 404
+            c.execute("DELETE FROM campaign_songs WHERE campaign_id=%s", (campaign_id,))
             c.execute("DELETE FROM campaigns WHERE id=%s", (campaign_id,))
         conn.commit()
     return jsonify({"ok": True})
@@ -113,7 +125,7 @@ def add_post_to_campaign(campaign_id):
 
     ok = fetch_single_post(post_id, username)
     if not ok:
-        return jsonify({"error": "Couldn't fetch that post from TikTok — it may be private, deleted, or the link is wrong"}), 400
+        return jsonify({"error": "Couldn't fetch that post from TikTok"}), 400
 
     with db() as conn:
         with conn.cursor() as c:
@@ -137,16 +149,23 @@ def campaign_posts(campaign_id):
                 return jsonify({"error": f"Campaign {campaign_id} doesn't exist"}), 404
             campaign = dict(campaign_row)
 
+            # Get posts through the song chain
             c.execute("""
-                SELECT p.* FROM posts p
-                WHERE p.campaign_id = %s
+                SELECT DISTINCT p.*
+                FROM posts p
+                JOIN sounds snd ON snd.id = p.sound_db_id
+                JOIN campaign_songs cs ON cs.song_id = snd.song_id
+                WHERE cs.campaign_id = %s
                 ORDER BY p.views DESC
             """, (campaign_id,))
             rows = [dict(r) for r in c.fetchall()]
+
             c.execute("SELECT * FROM campaign_links WHERE campaign_id=%s", (campaign_id,))
             links = [dict(r) for r in c.fetchall()]
+
     for r in rows:
-        r["date"] = str(r["date"])
+        r["date"] = str(r["date"]) if r.get("date") else None
+        r["created_at"] = str(r["created_at"]) if r.get("created_at") else None
     for l in links:
         l["added_at"] = str(l["added_at"])
     campaign["start_date"] = str(campaign["start_date"])
@@ -254,7 +273,8 @@ def campaign_songs(campaign_id):
     with db() as conn:
         with conn.cursor() as c:
             c.execute("""
-                SELECT s.*,
+                SELECT
+                    s.*,
                     COUNT(DISTINCT p.post_id) as post_count,
                     COALESCE(SUM(p.views), 0) as total_views
                 FROM campaign_songs cs
