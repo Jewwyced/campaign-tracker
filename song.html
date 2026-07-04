@@ -368,12 +368,15 @@ function renderCreatorsPanel(posts) {
   `).join('');
 }
 
-const params = new URLSearchParams(window.location.search);
-const fromCampaign = params.get('from');
-if (fromCampaign) {
-  const link = document.getElementById('breadcrumb-link');
-  link.href = `/campaign/${fromCampaign}`;
-  link.textContent = '← Back to campaign';
+// Fix back button to return to originating campaign
+const _params = new URLSearchParams(window.location.search);
+const _fromCampaign = _params.get('from');
+if (_fromCampaign) {
+  const _link = document.getElementById('breadcrumb-link');
+  if (_link) {
+    _link.href = '/campaign/' + _fromCampaign;
+    _link.textContent = '← Back to campaign';
+  }
 }
 
 load();

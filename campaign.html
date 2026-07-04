@@ -22,148 +22,55 @@
     --danger-bg: #fef2f2;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: var(--bg);
-    color: var(--text-primary);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  }
-  header {
-    display: flex;
-    align-items: center;
-    padding: 0 32px;
-    border-bottom: 1px solid var(--border);
-    height: 52px;
-  }
-  header .nav a {
-    font-size: 13px;
-    color: var(--text-secondary);
-    text-decoration: none;
-    margin-right: 20px;
-    padding: 4px 0;
-  }
+  body { background: var(--bg); color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; padding: 0 32px; border-bottom: 1px solid var(--border); height: 52px; }
+  header .nav a { font-size: 13px; color: var(--text-secondary); text-decoration: none; margin-right: 20px; padding: 4px 0; }
   header .nav a:hover { color: var(--text-primary); }
   header .nav a.active { color: var(--text-primary); font-weight: 600; border-bottom: 2px solid var(--accent); }
-
   main { padding: 28px 32px; max-width: 1100px; margin: 0 auto; }
   .breadcrumb { font-size: 13px; margin-bottom: 20px; }
   .breadcrumb a { color: var(--text-muted); text-decoration: none; }
   .breadcrumb a:hover { color: var(--text-primary); }
-
-  .campaign-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    margin-bottom: 32px;
-    padding-bottom: 24px;
-    border-bottom: 1px solid var(--border);
-  }
+  .campaign-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 32px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
   .campaign-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .campaign-title { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
-  .release-type-badge {
-    font-size: 11px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: .4px; color: var(--text-muted);
-    background: var(--surface-1); padding: 3px 8px; border-radius: 6px;
-  }
+  .release-type-badge { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: var(--text-muted); background: var(--surface-1); padding: 3px 8px; border-radius: 6px; }
   .campaign-artist { font-size: 15px; color: var(--text-muted); margin-top: 6px; }
-  .pill {
-    display: inline-flex; align-items: center;
-    font-size: 11px; font-weight: 600;
-    padding: 3px 9px; border-radius: 999px;
-  }
+  .pill { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; }
   .pill .dot { width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; background: currentColor; }
   .pill.active { background: var(--success-bg); color: var(--success-text); }
   .pill.wrapped { background: var(--neutral-bg); color: var(--neutral-text); }
-
-  select.status-select {
-    font-family: inherit; font-size: 13px;
-    padding: 7px 12px; border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--bg); color: var(--text-primary);
-    cursor: pointer;
-  }
-  .btn-danger {
-    font-size: 13px; font-family: inherit;
-    background: none; color: var(--danger);
-    border: 1px solid var(--border);
-    padding: 7px 14px; border-radius: 8px; cursor: pointer;
-  }
+  select.status-select { font-family: inherit; font-size: 13px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text-primary); cursor: pointer; }
+  .btn-danger { font-size: 13px; font-family: inherit; background: none; color: var(--danger); border: 1px solid var(--border); padding: 7px 14px; border-radius: 8px; cursor: pointer; }
   .btn-danger:hover { background: var(--danger-bg); border-color: var(--danger); }
-
-  .section-label {
-    font-size: 12px; font-weight: 600; color: var(--text-muted);
-    text-transform: uppercase; letter-spacing: .5px;
-    margin-bottom: 12px;
-  }
+  .section-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
   .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 36px; }
-  .stat-box {
-    background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: 12px; padding: 20px;
-  }
+  .stat-box { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
   .stat-box .label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
   .stat-box .value { font-size: 28px; font-weight: 700; margin-top: 6px; letter-spacing: -0.5px; }
-
-  .add-card {
-    background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: 10px; padding: 16px; margin-bottom: 20px;
-  }
+  .add-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 20px; }
   .add-label { font-size: 13px; color: var(--text-secondary); margin-bottom: 10px; }
   .add-row { display: flex; gap: 8px; }
-  input[type=text] {
-    flex: 1; font-family: inherit; font-size: 14px;
-    padding: 9px 12px; border-radius: 8px;
-    border: 1px solid var(--border); background: var(--bg); color: var(--text-primary);
-  }
+  input[type=text] { flex: 1; font-family: inherit; font-size: 14px; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text-primary); }
   input[type=text]:focus { outline: none; border-color: var(--accent); }
-  button.btn-primary {
-    font-size: 13px; font-family: inherit;
-    background: var(--accent); color: white; border: none;
-    padding: 9px 16px; border-radius: 8px; cursor: pointer; white-space: nowrap;
-  }
+  button.btn-primary { font-size: 13px; font-family: inherit; background: var(--accent); color: white; border: none; padding: 9px 16px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
   button.btn-primary:hover { background: var(--accent-dim); }
   button.btn-primary:disabled { background: var(--text-muted); cursor: default; }
   #add-song-error { font-size: 13px; color: var(--danger); margin-top: 10px; }
   #add-song-status { font-size: 13px; color: var(--text-muted); margin-top: 8px; }
-
   .songs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
-  .song-card {
-    background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: 12px; padding: 18px; position: relative;
-    cursor: pointer; transition: border-color .15s, box-shadow .15s;
-  }
+  .song-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 18px; position: relative; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
   .song-card:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(99,102,241,.08); }
   .song-card .name { font-size: 15px; font-weight: 600; padding-right: 28px; }
   .song-card .artist { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
   .song-card .views { font-size: 22px; font-weight: 700; color: var(--success-text); margin-top: 12px; letter-spacing: -0.5px; }
   .song-card .meta { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
-  .song-card .delete-btn {
-    position: absolute; top: 12px; right: 12px;
-    width: 24px; height: 24px; border-radius: 6px;
-    background: none; border: none;
-    color: var(--text-muted); font-size: 16px;
-    cursor: pointer; display: flex; align-items: center; justify-content: center;
-    transition: background .15s, color .15s;
-  }
+  .song-card .delete-btn { position: absolute; top: 12px; right: 12px; width: 24px; height: 24px; border-radius: 6px; background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
   .song-card .delete-btn:hover { background: var(--danger-bg); color: var(--danger); }
   .empty { padding: 48px; text-align: center; color: var(--text-muted); font-size: 14px; line-height: 1.6; }
-
-  .posts-section { margin-top: 36px; }
-  .posts-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .posts-table th {
-    text-align: left; font-size: 11px; font-weight: 600;
-    color: var(--text-muted); text-transform: uppercase; letter-spacing: .4px;
-    padding: 8px 12px; border-bottom: 1px solid var(--border);
-  }
-  .posts-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
-  .posts-table tr:last-child td { border-bottom: none; }
-  .posts-table tr:hover td { background: var(--surface-1); }
-  .posts-table .username { font-weight: 500; }
-  .posts-table .views-val { font-weight: 600; }
-  .posts-table a { color: var(--accent); text-decoration: none; }
-  .posts-table a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
-
 <header>
   <div class="nav">
     <a href="/">Dashboard</a>
@@ -173,10 +80,8 @@
     <a href="/sounds">Sound lookup</a>
   </div>
 </header>
-
 <main>
   <div class="breadcrumb"><a href="/campaigns">&larr; All campaigns</a></div>
-
   <div class="campaign-header">
     <div>
       <div class="campaign-title-row">
@@ -186,7 +91,7 @@
       </div>
       <div class="campaign-artist" id="campaign-artist"></div>
     </div>
-    <div style="display:flex; align-items:center; gap:8px;">
+    <div style="display:flex;align-items:center;gap:8px;">
       <select class="status-select" id="status-select" onchange="updateStatus()">
         <option value="In Progress">In Progress</option>
         <option value="Wrapped">Wrapped</option>
@@ -213,13 +118,7 @@
     <div id="add-song-error"></div>
     <div id="add-song-status"></div>
   </div>
-
   <div class="songs-grid" id="songs-grid"></div>
-
-  <div class="posts-section">
-    <div class="section-label" style="margin-top:36px;">Top Posts</div>
-    <div id="posts-container"></div>
-  </div>
 </main>
 
 <script>
@@ -247,8 +146,8 @@ function escapeHtml(str) {
 async function load() {
   try {
     const [postsRes, songsRes] = await Promise.all([
-      fetch(`/api/campaigns/${campaignId}/posts`),
-      fetch(`/api/campaigns/${campaignId}/songs`)
+      fetch('/api/campaigns/' + campaignId + '/posts'),
+      fetch('/api/campaigns/' + campaignId + '/songs')
     ]);
     const postsData = await postsRes.json();
     if (!postsRes.ok) {
@@ -274,17 +173,13 @@ async function load() {
 
     renderSongs();
     renderOverviewStats(postsData.posts || []);
-    renderPosts(postsData.posts || []);
-  } catch (e) {
-    console.error(e);
-  }
+  } catch(e) { console.error(e); }
 }
 
 function renderOverviewStats(posts) {
-  const totalViews = posts.reduce((s, p) => s + (parseInt(p.views) || 0), 0);
-  const totalLikes = posts.reduce((s, p) => s + (parseInt(p.likes) || 0), 0);
+  const totalViews = posts.reduce((s,p) => s + (parseInt(p.views)||0), 0);
+  const totalLikes = posts.reduce((s,p) => s + (parseInt(p.likes)||0), 0);
   const creators = new Set(posts.map(p => p.username)).size;
-
   document.getElementById('stat-songs').textContent = songsData.length || '-';
   document.getElementById('stat-views').textContent = fmt(totalViews);
   document.getElementById('stat-creators').textContent = creators || '-';
@@ -298,46 +193,15 @@ function renderSongs() {
     grid.innerHTML = '<div class="empty">No songs added yet.<br><span style="font-size:13px;">Add one above to get started.</span></div>';
     return;
   }
-  grid.innerHTML = songsData.map(s => `
-    onclick="window.location.href='/song/${s.id}'"
-      <button class="delete-btn" onclick="event.stopPropagation(); deleteSong(${s.id}, '${escapeHtml(s.name)}')" title="Remove song">×</button>
-      <div class="name">${escapeHtml(s.name)}</div>
-      <div class="artist">${escapeHtml(s.artist || '')}</div>
-      <div class="views">${fmt(s.total_views || 0)}</div>
-      <div class="meta">${s.post_count || 0} posts</div>
-    </div>
-  `).join('');
-}
-
-function renderPosts(posts) {
-  const container = document.getElementById('posts-container');
-  if (!posts || posts.length === 0) {
-    container.innerHTML = '<div class="empty" style="padding:24px;">No posts tracked yet.</div>';
-    return;
-  }
-  const top = posts.slice(0, 20);
-  container.innerHTML = `
-    <table class="posts-table">
-      <thead>
-        <tr>
-          <th>Creator</th>
-          <th>Views</th>
-          <th>Likes</th>
-          <th>Link</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${top.map(p => `
-          <tr>
-            <td class="username">@${escapeHtml(p.username)}</td>
-            <td class="views-val">${fmt(p.views)}</td>
-            <td>${fmt(p.likes)}</td>
-            <td><a href="https://tiktok.com/@${escapeHtml(p.username)}/video/${escapeHtml(p.post_id)}" target="_blank">↗</a></td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `;
+  grid.innerHTML = songsData.map(function(s) {
+    return '<div class="song-card" onclick="window.location.href=\'/song/' + s.id + '?from=' + campaignId + '\'">' +
+      '<button class="delete-btn" onclick="event.stopPropagation();deleteSong(' + s.id + ',\'' + escapeHtml(s.name) + '\')" title="Remove">\u00d7</button>' +
+      '<div class="name">' + escapeHtml(s.name) + '</div>' +
+      '<div class="artist">' + escapeHtml(s.artist || '') + '</div>' +
+      '<div class="views">' + fmt(s.total_views || 0) + '</div>' +
+      '<div class="meta">' + (s.post_count || 0) + ' posts</div>' +
+      '</div>';
+  }).join('');
 }
 
 async function addSong() {
@@ -347,15 +211,12 @@ async function addSong() {
   const statusEl = document.getElementById('add-song-status');
   const name = input.value.trim();
   if (!name) return;
-
   btn.disabled = true;
   btn.textContent = 'Searching...';
   errEl.textContent = '';
   statusEl.textContent = 'Finding sounds for this song — this can take a moment...';
-
   try {
-    // Create the song globally
-    const res = await fetch(`/api/songs`, {
+    const res = await fetch('/api/songs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name })
@@ -365,34 +226,32 @@ async function addSong() {
       errEl.textContent = data.error || 'Something went wrong.';
       statusEl.textContent = '';
     } else {
-      // Link the song to this campaign
-      await fetch(`/api/campaigns/${campaignId}`, {
+      await fetch('/api/campaigns/' + campaignId, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ song_id: data.song_id })
       });
       input.value = '';
-      statusEl.textContent = `Added "${name}" with ${data.sounds_found} sound${data.sounds_found === 1 ? '' : 's'}.`;
+      statusEl.textContent = 'Added "' + name + '" with ' + (data.sounds_found || 0) + ' sounds.';
       await load();
     }
-  } catch (e) {
+  } catch(e) {
     errEl.textContent = 'Could not reach the server.';
     statusEl.textContent = '';
   }
-
   btn.disabled = false;
   btn.textContent = 'Add song';
 }
 
 async function deleteSong(songId, songName) {
-  if (!confirm(`Remove "${songName}" from this campaign?`)) return;
-  await fetch(`/api/songs/${songId}`, { method: 'DELETE' });
+  if (!confirm('Remove "' + songName + '" from this campaign?')) return;
+  await fetch('/api/songs/' + songId, { method: 'DELETE' });
   await load();
 }
 
 async function updateStatus() {
   const status = document.getElementById('status-select').value;
-  await fetch(`/api/campaigns/${campaignId}/status`, {
+  await fetch('/api/campaigns/' + campaignId + '/status', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status })
@@ -402,12 +261,12 @@ async function updateStatus() {
 
 async function deleteThisCampaign() {
   const name = document.getElementById('campaign-title').textContent;
-  if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
-  await fetch(`/api/campaigns/${campaignId}`, { method: 'DELETE' });
+  if (!confirm('Delete "' + name + '"? This can\'t be undone.')) return;
+  await fetch('/api/campaigns/' + campaignId, { method: 'DELETE' });
   window.location.href = '/campaigns';
 }
 
-document.getElementById('song-name-input').addEventListener('keydown', e => {
+document.getElementById('song-name-input').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') addSong();
 });
 
