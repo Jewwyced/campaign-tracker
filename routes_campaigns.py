@@ -74,6 +74,11 @@ def update_campaign(campaign_id):
         with db() as conn:
             with conn.cursor() as c:
                 c.execute("UPDATE campaigns SET song_id=%s WHERE id=%s", (song_id, campaign_id))
+                c.execute("""
+                    INSERT INTO campaign_songs (campaign_id, song_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT DO NOTHING
+                """, (campaign_id, song_id))
             conn.commit()
     return jsonify({"ok": True})
 
