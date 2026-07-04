@@ -67,7 +67,6 @@ def song_detail(song_id):
 
     with db() as conn:
         with conn.cursor() as c:
-            # Song info
             c.execute("SELECT * FROM songs WHERE id=%s", (song_id,))
             song_row = c.fetchone()
             if not song_row:
@@ -75,7 +74,6 @@ def song_detail(song_id):
             song = dict(song_row)
             song["created_at"] = str(song["created_at"])
 
-            # Sounds
             c.execute("""
                 SELECT id, sound_id, title, author, status, current_video_count
                 FROM sounds WHERE song_id=%s AND status='approved'
@@ -83,21 +81,19 @@ def song_detail(song_id):
             """, (song_id,))
             sounds = [dict(r) for r in c.fetchall()]
 
-            # Header stats — all time
             c.execute("""
                 SELECT
                     COUNT(DISTINCT p.post_id) as post_count,
                     COUNT(DISTINCT p.username) as creator_count,
                     COALESCE(SUM(p.views), 0) as views,
                     COALESCE(SUM(p.likes), 0) as likes,
-                    COUNT(DISTINCT p.post_id) as total_creates
+                    COUNT(DISTINCT s.id) as sound_count
                 FROM posts p
                 JOIN sounds s ON s.id = p.sound_db_id
                 WHERE s.song_id = %s
             """, (song_id,))
             stats_row = dict(c.fetchone())
 
-            # Top posts — all time, sorted by views, no date filter
             c.execute("""
                 SELECT p.post_id, p.username, p.views, p.likes, p.comments,
                        p.saves, p.shares, p.thumbnail, p.created_at, p.date
@@ -112,7 +108,6 @@ def song_detail(song_id):
                 p["created_at"] = str(p["created_at"]) if p["created_at"] else None
                 p["date"] = str(p["date"]) if p["date"] else None
 
-            # Top creators
             c.execute("""
                 SELECT p.username,
                        COUNT(DISTINCT p.post_id) as post_count,
@@ -127,7 +122,6 @@ def song_detail(song_id):
             """, (song_id,))
             top_creators = [dict(r) for r in c.fetchall()]
 
-            # Trend — daily view counts
             c.execute("""
                 SELECT p.date, COALESCE(SUM(p.views), 0) as views
                 FROM posts p
@@ -146,13 +140,54 @@ def song_detail(song_id):
             "creator_count": stats_row["creator_count"],
             "views": stats_row["views"],
             "likes": stats_row["likes"],
-            "total_creates": stats_row["total_creates"],
+            "sound_count": stats_row["sound_count"],
         },
         "top_posts": top_posts,
         "top_creators": top_creators,
         "trend": trend,
         "window": window,
     })
+
+
+@songs_bp.route("/api/songs/<int:song_id>/insight")
+def song_insight(song_id):
+    from services.ai_service import generate_song_insight
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT * FROM songs WHERE id=%s", (song_id,))
+            row = c.fetchone()
+            if not row:
+                return jsonify({"insight": None}), 404
+            song = dict(row)
+
+            c.execute("""
+                SELECT p.username, COUNT(*) as post_count, SUM(p.views) as total_views
+                FROM posts p JOIN sounds s ON s.id = p.sound_db_id
+                WHERE s.song_id = %s
+                GROUP BY p.username ORDER BY total_views DESC LIMIT 5
+            """, (song_id,))
+            top_creators = [dict(r) for r in c.fetchall()]
+
+            c.execute("""
+                SELECT description FROM posts p JOIN sounds s ON s.id = p.sound_db_id
+                WHERE s.song_id = %s AND description IS NOT NULL AND description != ''
+                LIMIT 20
+            """, (song_id,))
+            descriptions = [r["description"] for r in c.fetchall()]
+
+            c.execute("""
+                SELECT COUNT(DISTINCT p.post_id) as post_count,
+                       COUNT(DISTINCT p.username) as creator_count,
+                       COALESCE(SUM(p.views), 0) as views,
+                       COALESCE(SUM(p.likes), 0) as likes,
+                       COUNT(DISTINCT s.id) as sound_count
+                FROM sounds s LEFT JOIN posts p ON p.sound_db_id = s.id
+                WHERE s.song_id = %s
+            """, (song_id,))
+            stats = dict(c.fetchone())
+
+    insight = generate_song_insight(song["name"], song["artist"], stats, top_creators, descriptions)
+    return jsonify({"insight": insight})
 
 
 @songs_bp.route("/api/songs/<int:song_id>", methods=["DELETE"])

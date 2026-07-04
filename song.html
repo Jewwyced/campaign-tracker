@@ -186,6 +186,11 @@
     <div class="creators-list" id="creators-list"></div>
   </div>
 
+  <div id="ai-insight" style="display:none; background:#eef2ff; border:1px solid #c7d2fe; border-radius:12px; padding:16px 20px; margin-bottom:24px; font-size:14px; line-height:1.7; color:#3730a3;">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#6366f1;margin-bottom:8px;">✦ AI Insight</div>
+    <span id="ai-insight-text"></span>
+  </div>
+
   <div class="section-row">
     <div class="section-title">Posts</div>
     <div class="filter-group">
@@ -301,6 +306,17 @@ async function load() {
 
   allPosts = data.top_posts || [];
   renderPostsGrid();
+
+  // Load AI insight asynchronously — non-blocking
+  fetch('/api/songs/' + songId + '/insight')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.insight) {
+        document.getElementById('ai-insight-text').textContent = d.insight;
+        document.getElementById('ai-insight').style.display = 'block';
+      }
+    })
+    .catch(function() {}); // fail silently
   renderSoundsPanel(sounds);
   renderCreatorsPanel(allPosts);
 }
