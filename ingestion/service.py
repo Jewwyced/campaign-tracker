@@ -156,7 +156,10 @@ def _update_sound_video_count(db_conn_factory, sound_db_id, tiktok_sound_id):
 
 
 def _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_results):
-    """Pull a curated sample of posts for a sound and save them to Neon."""
+    """Pull recent posts for a sound. Stops paginating when posts are older than 24 hours."""
+    import time
+    cutoff = int(time.time()) - (24 * 60 * 60)  # 24 hours ago
+
     all_posts = []
     cursor = 0
     while len(all_posts) < max_results:
@@ -164,12 +167,27 @@ def _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_resul
         posts, has_more, next_cursor = parse_posts_from_music_page(raw)
         if not posts:
             break
-        all_posts.extend(posts)
+
+        # Temp: verify sort order on first page
+        if cursor == 0:
+            from datetime import datetime
+            for p in posts[:5]:
+                ts = p.get("created_at")
+                if ts:
+                    _log(f"  sort-check {p.get('post_id')} -> {datetime.utcfromtimestamp(int(ts))}")
+
+        # Only keep posts from last 24 hours, stop when we hit older ones
+        recent = [p for p in posts if int(p.get("created_at") or 0) >= cutoff]
+        all_posts.extend(recent)
+
+        # If fewer recent posts than page size, we've passed the cutoff
+        if len(recent) < len(posts):
+            break
         if not has_more:
             break
         cursor = int(next_cursor) if next_cursor is not None else cursor + 30
 
-    _log(f"fetch_sound_posts id={tiktok_sound_id} -> got {len(all_posts)} posts (requested {max_results})")
+    _log(f"sound {tiktok_sound_id} -> {len(all_posts)} posts from last 24h")
     posts_to_write = all_posts[:max_results]
     today = date.today()
     added = 0
@@ -389,27 +407,30 @@ def ingest_fan_account(db_conn_factory, username):
         conn.commit()
 
     if account["sec_uid"]:
-        raw_posts = provider.get_account_posts(account["sec_uid"], count=10)
-        posts = parse_posts_from_user_feed(raw_posts)
-        if posts:
-            with db_conn_factory() as conn:
-                with conn.cursor() as c:
-                    for p in posts:
-                        c.execute("""
-                            INSERT INTO posts (post_id, date, username, description, views, likes, comments, saves, created_at, followers_at_post)
-                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                            ON CONFLICT (post_id) DO UPDATE SET
-                                views=EXCLUDED.views, likes=EXCLUDED.likes,
-                                comments=EXCLUDED.comments, saves=EXCLUDED.saves,
-                                followers_at_post=EXCLUDED.followers_at_post
-                        """, (
-                            p["post_id"], today, username,
-                            p.get("description", "")[:300],
-                            p.get("views", 0), p.get("likes", 0),
-                            p.get("comments", 0), p.get("saves", 0),
-                            p.get("created_at"), account["followers"]
-                        ))
-                conn.commit()
+        try:
+            raw_posts = provider.get_account_posts(account["sec_uid"], count=10)
+            posts = parse_posts_from_user_feed(raw_posts)
+            if posts:
+                with db_conn_factory() as conn:
+                    with conn.cursor() as c:
+                        for p in posts:
+                            c.execute("""
+                                INSERT INTO posts (post_id, date, username, description, views, likes, comments, saves, created_at, followers_at_post)
+                                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                ON CONFLICT (post_id) DO UPDATE SET
+                                    views=EXCLUDED.views, likes=EXCLUDED.likes,
+                                    comments=EXCLUDED.comments, saves=EXCLUDED.saves,
+                                    followers_at_post=EXCLUDED.followers_at_post
+                            """, (
+                                p["post_id"], today, username,
+                                p.get("description", "")[:300],
+                                p.get("views", 0), p.get("likes", 0),
+                                p.get("comments", 0), p.get("saves", 0),
+                                p.get("created_at"), account["followers"]
+                            ))
+                    conn.commit()
+        except Exception as e:
+            _log(f"get_account_posts failed for @{username}: {e} — skipping posts")
     _log(f"✓ ingested fan account @{username} — {account['followers']:,} followers")
     return True
 
