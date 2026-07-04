@@ -258,8 +258,14 @@ function renderPostsGrid() {
   }
 
   let posts = [...allPosts];
-  if (currentFilter === 'today') posts = posts.filter(p => isToday(p.created_at));
-  else if (currentFilter === 'week') posts = posts.filter(p => isThisWeek(p.created_at));
+  if (currentFilter === 'today') {
+    const todayStr = new Date().toISOString().split('T')[0];
+    posts = posts.filter(function(p) { return p.date && p.date.startsWith(todayStr); });
+  } else if (currentFilter === 'week') {
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    posts = posts.filter(function(p) { return p.date && new Date(p.date) >= weekAgo; });
+  }
 
   if (['recent','today','week'].includes(currentFilter)) {
     posts.sort((a,b) => (parseInt(b.created_at)||0) - (parseInt(a.created_at)||0));
