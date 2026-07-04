@@ -156,10 +156,7 @@ def _update_sound_video_count(db_conn_factory, sound_db_id, tiktok_sound_id):
 
 
 def _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_results):
-    """Pull recent posts for a sound. Stops paginating when posts are older than 24 hours."""
-    import time
-    cutoff = int(time.time()) - (24 * 60 * 60)  # 24 hours ago
-
+    """Pull a curated sample of posts for a sound and save them to Neon."""
     all_posts = []
     cursor = 0
     while len(all_posts) < max_results:
@@ -167,27 +164,12 @@ def _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_resul
         posts, has_more, next_cursor = parse_posts_from_music_page(raw)
         if not posts:
             break
-
-        # Temp: verify sort order on first page
-        if cursor == 0:
-            from datetime import datetime
-            for p in posts[:5]:
-                ts = p.get("created_at")
-                if ts:
-                    _log(f"  sort-check {p.get('post_id')} -> {datetime.utcfromtimestamp(int(ts))}")
-
-        # Only keep posts from last 24 hours, stop when we hit older ones
-        recent = [p for p in posts if int(p.get("created_at") or 0) >= cutoff]
-        all_posts.extend(recent)
-
-        # If fewer recent posts than page size, we've passed the cutoff
-        if len(recent) < len(posts):
-            break
+        all_posts.extend(posts)
         if not has_more:
             break
         cursor = int(next_cursor) if next_cursor is not None else cursor + 30
 
-    _log(f"sound {tiktok_sound_id} -> {len(all_posts)} posts from last 24h")
+    _log(f"fetch_sound_posts id={tiktok_sound_id} -> got {len(all_posts)} posts (requested {max_results})")
     posts_to_write = all_posts[:max_results]
     today = date.today()
     added = 0
