@@ -299,7 +299,7 @@ function renderSongs() {
     return;
   }
   grid.innerHTML = songsData.map(s => `
-    onclick="window.location.href='/song/${s.id}?from=${campaignId}'"
+    onclick="window.location.href='/song/${s.id}'"
       <button class="delete-btn" onclick="event.stopPropagation(); deleteSong(${s.id}, '${escapeHtml(s.name)}')" title="Remove song">×</button>
       <div class="name">${escapeHtml(s.name)}</div>
       <div class="artist">${escapeHtml(s.artist || '')}</div>
