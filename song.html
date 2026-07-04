@@ -156,7 +156,7 @@
 </header>
 
 <main>
-  <div class="breadcrumb"><a href="/campaigns">← Back to campaigns</a></div>
+  <div class="breadcrumb"><a href="/campaigns" id="breadcrumb-link">← Back to campaigns</a></div>
 
   <div class="song-header">
     <div class="song-title" id="song-title">Loading...</div>
@@ -366,6 +366,14 @@ function renderCreatorsPanel(posts) {
       <div class="creator-views">${fmt(data.views)}</div>
     </div>
   `).join('');
+}
+
+const params = new URLSearchParams(window.location.search);
+const fromCampaign = params.get('from');
+if (fromCampaign) {
+  const link = document.getElementById('breadcrumb-link');
+  link.href = `/campaign/${fromCampaign}`;
+  link.textContent = '← Back to campaign';
 }
 
 load();
