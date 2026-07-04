@@ -276,7 +276,17 @@ def campaign_songs(campaign_id):
                 SELECT
                     s.*,
                     COUNT(DISTINCT p.post_id) as post_count,
-                    COALESCE(SUM(p.views), 0) as total_views
+                    COALESCE(SUM(p.views), 0) as total_views,
+                    COUNT(DISTINCT p.post_id) FILTER (
+                        WHERE to_timestamp(p.created_at::bigint) >= NOW() - INTERVAL '7 days'
+                    ) as posts_7d,
+                    COALESCE(SUM(p.views) FILTER (
+                        WHERE to_timestamp(p.created_at::bigint) >= NOW() - INTERVAL '7 days'
+                    ), 0) as views_7d,
+                    COUNT(DISTINCT p.username) FILTER (
+                        WHERE to_timestamp(p.created_at::bigint) >= NOW() - INTERVAL '7 days'
+                    ) as creators_7d,
+                    MAX(snd.last_ingested_at) as last_refreshed
                 FROM campaign_songs cs
                 JOIN songs s ON s.id = cs.song_id
                 LEFT JOIN sounds snd ON snd.song_id = s.id
@@ -287,4 +297,5 @@ def campaign_songs(campaign_id):
             songs = [dict(r) for r in c.fetchall()]
             for song in songs:
                 song["created_at"] = str(song["created_at"])
+                song["last_refreshed"] = str(song["last_refreshed"]) if song.get("last_refreshed") else None
     return jsonify(songs)
