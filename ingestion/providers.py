@@ -173,7 +173,8 @@ class ProviderPipeline:
 # just add it to this list — nothing else in the codebase changes.
 
 default_provider = ProviderPipeline([
-    TikLiveAPIProvider(),
     TikAPIProvider(),
+    TikLiveAPIProvider(),
+    
     # FallbackProvider(),  ← uncomment when a real fallback exists
 ])
