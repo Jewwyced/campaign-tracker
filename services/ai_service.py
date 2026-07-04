@@ -113,3 +113,46 @@ Write 2-3 sentences a music marketing exec would want to read. Be specific with 
     except Exception as e:
         print(f"  AI insight exception: {e}")
         return None
+
+
+def generate_campaign_insight(campaign_name, artist, songs):
+    """Generate a 2-3 sentence strategic recommendation for a campaign."""
+    if not ANTHROPIC_API_KEY or not songs:
+        return None
+
+    song_lines = "\n".join(
+        f"- {s.get('name','')}: {s.get('total_views',0):,} total views, {s.get('post_count',0)} posts, "
+        f"+{s.get('posts_7d',0)} posts this week, {s.get('views_7d',0):,} views this week"
+        for s in songs
+    )
+
+    prompt = f"""You are a music marketing analyst advising a record label.
+
+Campaign: {campaign_name} by {artist}
+Songs performance:
+{song_lines}
+
+Write 2-3 sentences with a specific strategic recommendation. Which song has the most momentum? What type of creator activity is driving results? What should the team do next? Be direct and specific — use real numbers. No fluff, no exclamation points."""
+
+    try:
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "claude-haiku-4-5",
+                "max_tokens": 180,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        return data["content"][0]["text"].strip()
+    except Exception as e:
+        print(f"  AI campaign insight exception: {e}")
+        return None

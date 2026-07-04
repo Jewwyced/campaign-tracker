@@ -14,6 +14,7 @@
     --text-muted: #a1a1aa;
     --accent: #6366f1;
     --accent-dim: #4f46e5;
+    --accent-light: #eef2ff;
     --success-bg: #ecfdf5;
     --success-text: #059669;
     --neutral-bg: #f0f0f2;
@@ -31,6 +32,7 @@
   .breadcrumb { font-size: 13px; margin-bottom: 20px; }
   .breadcrumb a { color: var(--text-muted); text-decoration: none; }
   .breadcrumb a:hover { color: var(--text-primary); }
+
   .campaign-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 32px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
   .campaign-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .campaign-title { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
@@ -43,11 +45,32 @@
   select.status-select { font-family: inherit; font-size: 13px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text-primary); cursor: pointer; }
   .btn-danger { font-size: 13px; font-family: inherit; background: none; color: var(--danger); border: 1px solid var(--border); padding: 7px 14px; border-radius: 8px; cursor: pointer; }
   .btn-danger:hover { background: var(--danger-bg); border-color: var(--danger); }
+
   .section-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
-  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 36px; }
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px; }
   .stat-box { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
   .stat-box .label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
   .stat-box .value { font-size: 28px; font-weight: 700; margin-top: 6px; letter-spacing: -0.5px; }
+
+  /* AI Recommendation */
+  .ai-rec {
+    background: var(--accent-light); border: 1px solid #c7d2fe;
+    border-radius: 12px; padding: 18px 20px; margin-bottom: 28px;
+  }
+  .ai-rec-header { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--accent); margin-bottom: 10px; }
+  .ai-rec-text { font-size: 14px; line-height: 1.7; color: #3730a3; }
+  .ai-rec-loading { font-size: 13px; color: var(--text-muted); font-style: italic; }
+
+  /* Chart */
+  .chart-section { margin-bottom: 28px; }
+  .chart-bars { display: flex; gap: 16px; align-items: flex-end; height: 120px; padding: 0 4px; }
+  .chart-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .chart-bar { width: 100%; border-radius: 6px 6px 0 0; transition: opacity .15s; cursor: pointer; min-height: 4px; }
+  .chart-bar:hover { opacity: .8; }
+  .chart-label { font-size: 11px; color: var(--text-muted); font-weight: 500; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .chart-value { font-size: 11px; font-weight: 700; color: var(--text-secondary); }
+
+  /* Song cards */
   .add-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 20px; }
   .add-label { font-size: 13px; color: var(--text-secondary); margin-bottom: 10px; }
   .add-row { display: flex; gap: 8px; }
@@ -58,17 +81,18 @@
   button.btn-primary:disabled { background: var(--text-muted); cursor: default; }
   #add-song-error { font-size: 13px; color: var(--danger); margin-top: 10px; }
   #add-song-status { font-size: 13px; color: var(--text-muted); margin-top: 8px; }
+
   .songs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
   .song-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 18px; position: relative; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
   .song-card:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(99,102,241,.08); }
   .song-card .name { font-size: 15px; font-weight: 600; padding-right: 28px; }
   .song-card .artist { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
-  .song-card .views { font-size: 22px; font-weight: 700; color: var(--success-text); margin-top: 12px; letter-spacing: -0.5px; }
+  .song-card .views { font-size: 22px; font-weight: 700; color: var(--success-text); margin-top: 12px; letter-spacing: -0.5px; display: flex; align-items: center; gap: 8px; }
   .song-card .meta { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+  .song-card .refresh-time { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
+  .weekly-badge { font-size: 11px; font-weight: 600; color: var(--success-text); background: var(--success-bg); padding: 2px 7px; border-radius: 4px; }
   .song-card .delete-btn { position: absolute; top: 12px; right: 12px; width: 24px; height: 24px; border-radius: 6px; background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
   .song-card .delete-btn:hover { background: var(--danger-bg); color: var(--danger); }
-  .weekly-badge { font-size: 11px; font-weight: 600; color: var(--success-text); margin-left: 8px; background: var(--success-bg); padding: 2px 7px; border-radius: 4px; vertical-align: middle; }
-  .refresh-time { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
   .empty { padding: 48px; text-align: center; color: var(--text-muted); font-size: 14px; line-height: 1.6; }
 </style>
 </head>
@@ -110,6 +134,18 @@
     <div class="stat-box"><div class="label">Avg engagement</div><div class="value" id="stat-eng">-</div></div>
   </div>
 
+  <!-- Views chart -->
+  <div class="chart-section">
+    <div class="section-label">Views by Song</div>
+    <div class="chart-bars" id="chart-bars"></div>
+  </div>
+
+  <!-- AI Recommendation -->
+  <div class="ai-rec" id="ai-rec" style="display:none;">
+    <div class="ai-rec-header">✦ AI Campaign Insight</div>
+    <div class="ai-rec-text" id="ai-rec-text"><span class="ai-rec-loading">Analyzing campaign data...</span></div>
+  </div>
+
   <div class="section-label">Songs</div>
   <div class="add-card">
     <div class="add-label">Add a song — we'll find every TikTok sound for it automatically. e.g. "Griddle Yeat"</div>
@@ -144,6 +180,15 @@ function escapeHtml(str) {
   div.textContent = str || '';
   return div.innerHTML;
 }
+function timeAgo(str) {
+  if (!str) return 'never';
+  const d = new Date(str);
+  const s = (Date.now() - d) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s/60) + 'm ago';
+  if (s < 86400) return Math.floor(s/3600) + 'h ago';
+  return Math.floor(s/86400) + 'd ago';
+}
 
 async function load() {
   try {
@@ -175,6 +220,8 @@ async function load() {
 
     renderSongs();
     renderOverviewStats(postsData.posts || []);
+    renderChart();
+    loadAIRecommendation();
   } catch(e) { console.error(e); }
 }
 
@@ -189,6 +236,54 @@ function renderOverviewStats(posts) {
   document.getElementById('stat-eng').textContent = pct(avgEng);
 }
 
+function renderChart() {
+  const container = document.getElementById('chart-bars');
+  if (!songsData.length) { container.innerHTML = ''; return; }
+  const maxViews = Math.max(...songsData.map(s => parseInt(s.total_views) || 0));
+  const colors = ['#6366f1', '#22c55e', '#f59e0b', '#ec4899', '#14b8a6'];
+  container.innerHTML = songsData.map(function(s, i) {
+    const views = parseInt(s.total_views) || 0;
+    const height = maxViews > 0 ? Math.max(4, Math.round((views / maxViews) * 100)) : 4;
+    return '<div class="chart-bar-wrap">' +
+      '<div class="chart-value">' + fmt(views) + '</div>' +
+      '<div class="chart-bar" style="height:' + height + 'px;background:' + colors[i % colors.length] + ';" title="' + escapeHtml(s.name) + ': ' + fmt(views) + ' views"></div>' +
+      '<div class="chart-label">' + escapeHtml(s.name) + '</div>' +
+      '</div>';
+  }).join('');
+}
+
+function loadAIRecommendation() {
+  if (!songsData.length) return;
+  const recEl = document.getElementById('ai-rec');
+  const textEl = document.getElementById('ai-rec-text');
+  recEl.style.display = 'block';
+
+  // Build prompt data from songs
+  const songSummary = songsData.map(function(s) {
+    return s.name + ': ' + fmt(s.total_views) + ' views, ' + (s.post_count || 0) + ' posts, ' +
+      (s.posts_7d || 0) + ' new this week, ' + fmt(s.views_7d || 0) + ' views this week';
+  }).join('\n');
+
+  fetch('/api/campaign_insight', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      campaign_name: campaignData.name,
+      artist: campaignData.artist,
+      songs: songsData
+    })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.insight) {
+      textEl.textContent = d.insight;
+    } else {
+      recEl.style.display = 'none';
+    }
+  })
+  .catch(function() { recEl.style.display = 'none'; });
+}
+
 function renderSongs() {
   const grid = document.getElementById('songs-grid');
   if (!songsData || songsData.length === 0) {
@@ -196,12 +291,23 @@ function renderSongs() {
     return;
   }
   grid.innerHTML = songsData.map(function(s) {
+    const weeklyViews = s.views_7d || 0;
+    const weeklyPosts = s.posts_7d || 0;
+    const weeklyBadge = weeklyViews > 0
+      ? '<span class="weekly-badge">\u2191 ' + fmt(weeklyViews) + ' this week</span>'
+      : '';
+    const refreshed = s.last_refreshed
+      ? '<div class="refresh-time">Updated ' + timeAgo(s.last_refreshed) + '</div>'
+      : '';
     return '<div class="song-card" onclick="window.location.href=\'/song/' + s.id + '?from=' + campaignId + '\'">' +
       '<button class="delete-btn" onclick="event.stopPropagation();deleteSong(' + s.id + ',\'' + escapeHtml(s.name) + '\')" title="Remove">\u00d7</button>' +
       '<div class="name">' + escapeHtml(s.name) + '</div>' +
       '<div class="artist">' + escapeHtml(s.artist || '') + '</div>' +
-      '<div class="views">' + fmt(s.total_views || 0) + '</div>' +
-      '<div class="meta">' + (s.post_count || 0) + ' posts</div>' +
+      '<div class="views">' + fmt(s.total_views || 0) + weeklyBadge + '</div>' +
+      '<div class="meta">' + (s.post_count || 0) + ' posts' +
+        (weeklyPosts > 0 ? ' &bull; <span style="color:var(--success-text)">+' + weeklyPosts + ' this week</span>' : '') +
+      '</div>' +
+      refreshed +
       '</div>';
   }).join('');
 }

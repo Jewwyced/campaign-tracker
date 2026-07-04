@@ -263,6 +263,20 @@ def detach_sound_from_campaign(campaign_id):
     return jsonify({"ok": True})
 
 
+@campaigns_bp.route("/api/campaign_insight", methods=["POST"])
+def campaign_insight():
+    from services.ai_service import generate_campaign_insight
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"insight": None})
+    insight = generate_campaign_insight(
+        data.get("campaign_name", ""),
+        data.get("artist", ""),
+        data.get("songs", [])
+    )
+    return jsonify({"insight": insight})
+
+
 @campaigns_bp.route("/campaigns")
 def campaigns_page():
     return render_template_string(open("index.html").read())
