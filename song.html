@@ -44,6 +44,32 @@
     transition: box-shadow .15s;
   }
   .stat-box:hover { box-shadow: 0 2px 12px rgba(0,0,0,.06); }
+  .stat-clickable { cursor: pointer; }
+  .stat-clickable:hover { border-color: var(--accent); box-shadow: 0 2px 12px rgba(99,102,241,.1); }
+  .stat-clickable.open { border-color: var(--accent); background: var(--accent-light); }
+  .chevron { font-size: 10px; color: var(--text-muted); margin-left: 4px; transition: transform .2s; display: inline-block; }
+  .chevron.rotated { transform: rotate(180deg); }
+
+  .expand-panel {
+    display: none; margin-bottom: 16px;
+    background: white; border: 1px solid var(--border);
+    border-radius: 14px; overflow: hidden;
+    animation: slideDown .2s ease;
+  }
+  .expand-panel.open { display: block; }
+  @keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+  .creator-row {
+    display: flex; align-items: center; padding: 12px 18px;
+    border-bottom: 1px solid var(--border-light);
+    transition: background .1s;
+  }
+  .creator-row:last-child { border-bottom: none; }
+  .creator-row:hover { background: var(--bg); }
+  .creator-rank { font-size: 12px; font-weight: 700; color: var(--text-muted); width: 28px; }
+  .creator-name { font-size: 14px; font-weight: 600; flex: 1; }
+  .creator-posts { font-size: 12px; color: var(--text-muted); margin-right: 20px; }
+  .creator-views { font-size: 14px; font-weight: 700; color: var(--accent); }
   .stat-box .label { font-size: 11px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
   .stat-box .value { font-size: 28px; font-weight: 800; margin-top: 8px; letter-spacing: -0.5px; }
   .stat-box .value.accent { color: var(--accent); }
@@ -139,9 +165,25 @@
 
   <div class="stat-row">
     <div class="stat-box"><div class="label">Total Views</div><div class="value accent" id="stat-views">—</div></div>
-    <div class="stat-box"><div class="label">Sounds</div><div class="value" id="stat-sounds">—</div></div>
-    <div class="stat-box"><div class="label">Creators</div><div class="value" id="stat-creators">—</div></div>
+    <div class="stat-box stat-clickable" onclick="togglePanel('sounds-panel')" id="box-sounds">
+      <div class="label">Sounds <span class="chevron" id="chev-sounds">↓</span></div>
+      <div class="value" id="stat-sounds">—</div>
+    </div>
+    <div class="stat-box stat-clickable" onclick="togglePanel('creators-panel')" id="box-creators">
+      <div class="label">Creators <span class="chevron" id="chev-creators">↓</span></div>
+      <div class="value" id="stat-creators">—</div>
+    </div>
     <div class="stat-box"><div class="label">Posts Tracked</div><div class="value" id="stat-posts">—</div></div>
+  </div>
+
+  <!-- Sounds panel -->
+  <div class="expand-panel" id="sounds-panel">
+    <div class="sounds-list" id="sounds-list-inline"></div>
+  </div>
+
+  <!-- Creators panel -->
+  <div class="expand-panel" id="creators-panel">
+    <div class="creators-list" id="creators-list"></div>
   </div>
 
   <div class="section-row">
@@ -155,12 +197,7 @@
   </div>
   <div class="posts-grid" id="posts-grid"><div class="loading">Loading posts...</div></div>
 
-  <div class="sounds-section">
-    <div class="section-row">
-      <div class="section-title">Sounds</div>
-    </div>
-    <div class="sounds-list" id="sounds-list"><div class="loading">Loading...</div></div>
-  </div>
+
 </main>
 
 <script>
@@ -264,28 +301,71 @@ async function load() {
 
   allPosts = data.top_posts || [];
   renderPostsGrid();
-
-  const sl = document.getElementById('sounds-list');
-  sl.innerHTML = !sounds.length ? '<div class="empty">No sounds tracked yet.</div>' :
-    sounds.map(s => `
-      <div class="sound-row">
-        <div style="flex:1;min-width:0;">
-          <div class="sound-name">${escapeHtml(s.title||'Unknown sound')}</div>
-          <div class="sound-author">${escapeHtml(s.author||'')}</div>
-        </div>
-        <div style="text-align:right;margin-right:8px;">
-          <div class="sound-count">${fmt(s.current_video_count)}</div>
-          <div class="sound-count-lbl">videos</div>
-        </div>
-        <button class="delete-btn" onclick="event.preventDefault();deleteSound(${s.id})">×</button>
-      </div>
-    `).join('');
+  renderSoundsPanel(sounds);
+  renderCreatorsPanel(allPosts);
 }
 
 async function deleteSound(id) {
   if (!confirm('Remove this sound?')) return;
   await fetch(`/api/sounds/${id}`, {method:'DELETE'});
   load();
+}
+
+function togglePanel(panelId) {
+  const panel = document.getElementById(panelId);
+  const isOpen = panel.classList.contains('open');
+  // Close all panels first
+  document.querySelectorAll('.expand-panel').forEach(p => p.classList.remove('open'));
+  document.querySelectorAll('.stat-clickable').forEach(b => b.classList.remove('open'));
+  document.querySelectorAll('.chevron').forEach(c => c.classList.remove('rotated'));
+  // Open clicked one if it was closed
+  if (!isOpen) {
+    panel.classList.add('open');
+    const boxId = panelId === 'sounds-panel' ? 'box-sounds' : 'box-creators';
+    const chevId = panelId === 'sounds-panel' ? 'chev-sounds' : 'chev-creators';
+    document.getElementById(boxId).classList.add('open');
+    document.getElementById(chevId).classList.add('rotated');
+  }
+}
+
+function renderSoundsPanel(sounds) {
+  const el = document.getElementById('sounds-list-inline');
+  if (!sounds.length) { el.innerHTML = '<div class="empty">No sounds tracked yet.</div>'; return; }
+  el.innerHTML = sounds.map(s => `
+    <div class="sound-row">
+      <div style="flex:1;min-width:0;">
+        <div class="sound-name">${escapeHtml(s.title||'Unknown sound')}</div>
+        <div class="sound-author">${escapeHtml(s.author||'')}</div>
+      </div>
+      <div style="text-align:right;margin-right:8px;">
+        <div class="sound-count">${fmt(s.current_video_count)}</div>
+        <div class="sound-count-lbl">videos</div>
+      </div>
+      <button class="delete-btn" onclick="event.preventDefault();deleteSound(${s.id})">×</button>
+    </div>
+  `).join('');
+}
+
+function renderCreatorsPanel(posts) {
+  const el = document.getElementById('creators-list');
+  const creatorMap = {};
+  posts.forEach(p => {
+    if (!creatorMap[p.username]) creatorMap[p.username] = { posts: 0, views: 0 };
+    creatorMap[p.username].posts++;
+    creatorMap[p.username].views += parseInt(p.views) || 0;
+  });
+  const sorted = Object.entries(creatorMap)
+    .sort((a,b) => b[1].views - a[1].views)
+    .slice(0, 20);
+  if (!sorted.length) { el.innerHTML = '<div class="empty">No creators yet.</div>'; return; }
+  el.innerHTML = sorted.map(([username, data], i) => `
+    <div class="creator-row">
+      <div class="creator-rank">#${i+1}</div>
+      <div class="creator-name">@${escapeHtml(username)}</div>
+      <div class="creator-posts">${data.posts} post${data.posts !== 1 ? 's' : ''}</div>
+      <div class="creator-views">${fmt(data.views)}</div>
+    </div>
+  `).join('');
 }
 
 load();
