@@ -259,12 +259,20 @@ function renderPostsGrid() {
 
   let posts = [...allPosts];
   if (currentFilter === 'today') {
-    const todayStr = new Date().toISOString().split('T')[0];
-    posts = posts.filter(function(p) { return p.date && p.date.startsWith(todayStr); });
+    // Filter by TikTok post date (created_at is Unix timestamp)
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
+    const endOfDay = startOfDay + 86400;
+    posts = posts.filter(function(p) {
+      const ts = parseInt(p.created_at);
+      return ts >= startOfDay && ts < endOfDay;
+    });
   } else if (currentFilter === 'week') {
-    const weekAgo = new Date();
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    posts = posts.filter(function(p) { return p.date && new Date(p.date) >= weekAgo; });
+    // Filter by TikTok post date — last 7 days
+    const cutoff = (Date.now() / 1000) - (7 * 86400);
+    posts = posts.filter(function(p) {
+      return parseInt(p.created_at) >= cutoff;
+    });
   }
 
   if (['recent','today','week'].includes(currentFilter)) {
