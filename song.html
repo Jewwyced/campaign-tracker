@@ -158,9 +158,12 @@
 <main>
   <div class="breadcrumb"><a href="/campaigns" id="breadcrumb-link">← Back to campaigns</a></div>
 
-  <div class="song-header">
-    <div class="song-title" id="song-title">Loading...</div>
-    <div class="song-artist" id="song-artist"></div>
+  <div class="song-header" style="display:flex;align-items:flex-start;justify-content:space-between;">
+    <div>
+      <div class="song-title" id="song-title">Loading...</div>
+      <div class="song-artist" id="song-artist"></div>
+    </div>
+    <button id="refresh-btn" onclick="refreshSong()" style="font-size:13px;font-family:inherit;padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text-secondary);cursor:pointer;margin-top:4px;white-space:nowrap;">↻ Refresh</button>
   </div>
 
   <div class="stat-row">
@@ -396,6 +399,30 @@ function renderCreatorsPanel(posts) {
       <div class="creator-views">${fmt(data.views)}</div>
     </div>
   `).join('');
+}
+
+async function refreshSong() {
+  const btn = document.getElementById('refresh-btn');
+  btn.textContent = 'Refreshing...';
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/songs/' + songId + '/refresh', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      btn.textContent = '✓ Refreshed';
+      setTimeout(function() {
+        btn.textContent = '↻ Refresh';
+        btn.disabled = false;
+      }, 2000);
+      await load();
+    } else {
+      btn.textContent = '↻ Refresh';
+      btn.disabled = false;
+    }
+  } catch(e) {
+    btn.textContent = '↻ Refresh';
+    btn.disabled = false;
+  }
 }
 
 // Fix back button to return to originating campaign

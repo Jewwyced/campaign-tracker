@@ -227,6 +227,50 @@ def song_posts(song_id):
     return jsonify(posts)
 
 
+@songs_bp.route("/api/songs/<int:song_id>/refresh", methods=["POST"])
+def refresh_song(song_id):
+    """Re-discover sounds and refresh all posts for a song.
+    Safe to call at any time — never deletes existing data."""
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT name, artist FROM songs WHERE id=%s", (song_id,))
+            row = c.fetchone()
+            if not row:
+                return jsonify({"error": "Song not found"}), 404
+            name = row["name"]
+            artist = row["artist"] or ""
+
+    # Step 1: Discover new sounds (won't duplicate existing ones)
+    new_sounds = ingestion.ingest_song_sounds(db, song_id, name, artist)
+
+    # Step 2: Refresh ALL approved sounds for this song (force refresh by clearing last_ingested_at)
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                UPDATE sounds SET last_ingested_at = NULL
+                WHERE song_id = %s AND status = 'approved'
+            """, (song_id,))
+        conn.commit()
+
+    # Step 3: Re-ingest all sounds
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT id, sound_id FROM sounds WHERE song_id=%s AND status='approved'", (song_id,))
+            sounds = [dict(r) for r in c.fetchall()]
+
+    posts_added = 0
+    for s in sounds:
+        result = ingestion.ingest_sound(db, song_id, s["id"], s["sound_id"], max_results=30)
+        posts_added += result.get("posts_added", 0)
+
+    return jsonify({
+        "ok": True,
+        "new_sounds": len(new_sounds) if new_sounds else 0,
+        "sounds_refreshed": len(sounds),
+        "posts_added": posts_added
+    })
+
+
 @songs_bp.route("/songs")
 def songs_page():
     return render_template_string(open("songs.html").read())

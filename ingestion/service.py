@@ -298,7 +298,7 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
         unique_sounds,
         key=lambda s: _score_sound(s, title, artist),
         reverse=True
-    )[:5]
+    )[:15]
 
     _log(f"discover_song_sounds: {len(all_sounds)} found -> {len(unique_sounds)} unique -> top {len(ranked_sounds)} selected")
 
