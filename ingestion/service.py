@@ -156,20 +156,21 @@ def _update_sound_video_count(db_conn_factory, sound_db_id, tiktok_sound_id):
 
 
 def _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_results):
-    """Pull a curated sample of posts for a sound and save them to Neon."""
+    """Pull newest posts for a sound. TikLive returns newest first so
+    we get the most recent activity on every refresh."""
     all_posts = []
     cursor = 0
     while len(all_posts) < max_results:
-        raw = provider.get_sound_posts_page(tiktok_sound_id, cursor=cursor, count=30)
+        raw = provider.get_sound_posts_page(tiktok_sound_id, cursor=cursor, count=35)
         posts, has_more, next_cursor = parse_posts_from_music_page(raw)
         if not posts:
             break
         all_posts.extend(posts)
         if not has_more:
             break
-        cursor = int(next_cursor) if next_cursor is not None else cursor + 30
+        cursor = int(next_cursor) if next_cursor is not None else cursor + 35
 
-    _log(f"fetch_sound_posts id={tiktok_sound_id} -> got {len(all_posts)} posts (requested {max_results})")
+    _log(f"fetch_sound_posts id={tiktok_sound_id} -> got {len(all_posts)} posts")
     posts_to_write = all_posts[:max_results]
     today = date.today()
     added = 0
@@ -298,7 +299,7 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
         unique_sounds,
         key=lambda s: _score_sound(s, title, artist),
         reverse=True
-    )[:15]
+    )[:20]
 
     _log(f"discover_song_sounds: {len(all_sounds)} found -> {len(unique_sounds)} unique -> top {len(ranked_sounds)} selected")
 

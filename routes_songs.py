@@ -260,7 +260,7 @@ def refresh_song(song_id):
 
     posts_added = 0
     for s in sounds:
-        result = ingestion.ingest_sound(db, song_id, s["id"], s["sound_id"], max_results=30)
+        result = ingestion.ingest_sound(db, song_id, s["id"], s["sound_id"], max_results=35)
         posts_added += result.get("posts_added", 0)
 
     return jsonify({
