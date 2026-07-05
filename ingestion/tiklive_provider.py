@@ -70,7 +70,7 @@ class TikLiveAPIProvider:
         """Returns one page of posts normalized to TikAPI itemStruct shape."""
         data = self._get("/music-posts/", {
             "music_id": sound_id,
-            "count": min(count, 35),
+            "count": min(count, 30),
             "cursor": cursor,
         })
         if not data:
@@ -123,10 +123,12 @@ class TikLiveAPIProvider:
         if not data:
             return None
 
-        # Debug: log raw response
-        _log(json.dumps(data, indent=2)[:3000])
-
         videos = data.get("videos", [])
+        _log(f"search got {len(videos)} videos")
+        if videos:
+            _log(f"first video keys: {list(videos[0].keys())}")
+            _log(f"music_info sample: {str(videos[0].get('music_info'))[:200]}")
+
         seen_ids = set()
         items = []
         for v in videos:
@@ -145,7 +147,9 @@ class TikLiveAPIProvider:
                 }
             })
 
+        _log(f"search_sounds returning {len(items)} distinct sounds")
         return {"data": items}
+
 
     def get_account(self, username):
         """Returns user profile normalized to TikAPI userInfo shape."""
@@ -180,7 +184,7 @@ class TikLiveAPIProvider:
         # Redesign provider interface to support provider-specific account IDs.
         """
         if sec_uid and str(sec_uid).isdigit():
-            data = self._get("/user-posts/", {"userid": sec_uid, "count": min(count, 35)})
+            data = self._get("/user-posts/", {"userid": sec_uid, "count": min(count, 30)})
         else:
             _log(f"get_account_posts: secUid is not numeric, skipping")
             return None
