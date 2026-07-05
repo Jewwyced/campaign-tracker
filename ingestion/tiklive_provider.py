@@ -67,7 +67,8 @@ class TikLiveAPIProvider:
         }
 
     def get_sound_posts_page(self, sound_id, cursor=0, count=30):
-        """Returns one page of posts normalized to TikAPI itemStruct shape."""
+        """Returns one page of posts normalized to TikAPI itemStruct shape.
+        Verified against actual TikLive /music-posts/ response structure."""
         data = self._get("/music-posts/", {
             "music_id": sound_id,
             "count": min(count, 30),
@@ -76,73 +77,87 @@ class TikLiveAPIProvider:
         if not data:
             return None
 
-        # Debug: log raw response on first page only
-        if cursor == 0:
-            _log(json.dumps(data, indent=2)[:3000])
-
         videos = data.get("videos", [])
+        _log(f"music-posts got {len(videos)} videos for sound {sound_id}")
+
         items = []
         for v in videos:
             author = v.get("author", {})
             items.append({
                 "id": v.get("video_id"),
-                "desc": v.get("title", ""),
+                "desc": v.get("title", "")[:300],
                 "createTime": v.get("create_time"),
                 "stats": {
-                    "playCount": v.get("play_count", 0),
-                    "diggCount": v.get("digg_count", 0),
-                    "commentCount": v.get("comment_count", 0),
-                    "collectCount": v.get("collect_count", 0),
-                    "shareCount": v.get("share_count", 0),
+                    "playCount": int(v.get("play_count") or 0),
+                    "diggCount": int(v.get("digg_count") or 0),
+                    "commentCount": int(v.get("comment_count") or 0),
+                    "collectCount": int(v.get("collect_count") or 0),
+                    "shareCount": int(v.get("share_count") or 0),
                 },
                 "author": {
-                    "uniqueId": author.get("unique_id", ""),
+                    "uniqueId": author.get("unique_id", "") if isinstance(author, dict) else "",
                 },
                 "authorStats": {},
                 "video": {
-                    "cover": v.get("cover"),
+                    "cover": v.get("cover", ""),
                 },
             })
+
+        # TikLive returns hasMore and cursor at top level
+        has_more = bool(data.get("hasMore", False))
+        next_cursor = data.get("cursor")
 
         return {
             "itemStruct": {
                 "itemList": items,
-                "hasMore": bool(data.get("hasMore")),
-                "cursor": data.get("cursor"),
+                "hasMore": has_more,
+                "cursor": next_cursor,
             }
         }
 
+
     def search_sounds(self, query):
-        """Search videos by keyword, deduplicate by music id."""
+        """Search videos by keyword, extract unique sounds from results.
+        TikLive /search-video/ returns a music URL not a music object,
+        so we extract the ID from the URL and fetch metadata separately."""
         data = self._get("/search-video/", {
             "keyword": query,
             "count": 35,
-            "publish_time": 7,   # This week only
-            "sort_by": 2,        # Sort by date posted (newest first)
+            "publish_time": 7,
+            "sort_by": 2,
         })
         if not data:
             return None
 
         videos = data.get("videos", [])
         _log(f"search got {len(videos)} videos")
-        if videos:
-            _log(f"first video keys: {list(videos[0].keys())}")
-            _log(f"music_info sample: {str(videos[0].get('music_info'))[:200]}")
 
         seen_ids = set()
         items = []
         for v in videos:
-            music = v.get("music_info", {})
-            music_id = music.get("id")
+            # Extract music ID from music URL
+            # e.g. https://sf16-ies-music-va.tiktokcdn.com/obj/.../tx27648905369661541151.mp3
+            music_url = v.get("music", "")
+            music_id = None
+
+            if music_url:
+                # Try to extract numeric ID from URL path
+                m = re.search(r'/(\d{10,})', music_url)
+                if m:
+                    music_id = m.group(1)
+
             if not music_id or music_id in seen_ids:
                 continue
+
             seen_ids.add(music_id)
+            # We'll fetch title/author later via get_sound_info
+            # For now return with placeholder title from video title
             items.append({
                 "item": {
                     "music": {
                         "id": music_id,
-                        "title": music.get("title", ""),
-                        "authorName": music.get("author", ""),
+                        "title": v.get("title", "")[:50],
+                        "authorName": "",
                     }
                 }
             })
