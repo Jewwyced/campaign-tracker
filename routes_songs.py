@@ -102,7 +102,7 @@ def song_detail(song_id):
                  JOIN sounds s ON s.id = p.sound_db_id
                  WHERE s.song_id = %s
                  ORDER BY p.views DESC NULLS LAST
-                 LIMIT 20)
+                 LIMIT 15)
                 UNION
                 (SELECT p.post_id, p.username, p.views, p.likes, p.comments,
                         p.saves, p.shares, p.thumbnail, p.created_at, p.date
@@ -110,7 +110,7 @@ def song_detail(song_id):
                  JOIN sounds s ON s.id = p.sound_db_id
                  WHERE s.song_id = %s
                  ORDER BY p.created_at DESC NULLS LAST
-                 LIMIT 20)
+                 LIMIT 25)
             """, (song_id, song_id))
             top_posts = [dict(r) for r in c.fetchall()]
             for p in top_posts:
