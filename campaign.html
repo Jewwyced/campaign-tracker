@@ -111,6 +111,25 @@
   .song-card .delete-btn { position: absolute; top: 12px; right: 12px; width: 24px; height: 24px; border-radius: 6px; background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
   .song-card .delete-btn:hover { background: var(--danger-bg); color: var(--danger); }
   .empty { padding: 48px; text-align: center; color: var(--text-muted); font-size: 14px; line-height: 1.6; }
+
+  /* Deals */
+  .deals-section { margin-top: 32px; }
+  .deals-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+  .deals-stat { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
+  .deals-stat .label { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+  .deals-stat .value { font-size: 24px; font-weight: 800; margin-top: 6px; letter-spacing: -0.5px; }
+  .deals-stat .value.green { color: var(--success-text); }
+  .deals-stat .value.accent { color: var(--accent); }
+  .deals-table { width: 100%; border-collapse: collapse; font-size: 13px; background: white; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); }
+  .deals-table th { text-align: left; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .4px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface-1); }
+  .deals-table td { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .deals-table tr:last-child td { border-bottom: none; }
+  .deals-table tr:hover td { background: var(--surface-1); }
+  .deals-table .creator { font-weight: 600; }
+  .deals-table .amount { font-weight: 700; color: var(--danger); }
+  .deals-table .views { font-weight: 700; color: var(--success-text); }
+  .deals-table .cpv { color: var(--accent); font-weight: 600; }
+  .roi-badge { display: inline-block; background: var(--success-bg); color: var(--success-text); font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
 </style>
 </head>
 <body>
@@ -174,6 +193,24 @@
     <div id="add-song-status"></div>
   </div>
   <div class="songs-grid" id="songs-grid"></div>
+  <!-- Creator Deals / ROI -->
+  <div class="deals-section" id="deals-section" style="display:none;">
+    <div class="section-label">Creator Investment & ROI</div>
+    <div class="deals-summary" id="deals-summary"></div>
+    <table class="deals-table" id="deals-table">
+      <thead>
+        <tr>
+          <th>Creator</th>
+          <th>Deal</th>
+          <th>Investment</th>
+          <th>Views Generated</th>
+          <th>Cost Per View</th>
+          <th>vs Industry</th>
+        </tr>
+      </thead>
+      <tbody id="deals-body"></tbody>
+    </table>
+  </div>
 </main>
 
 <script>
@@ -274,7 +311,7 @@ function renderChart() {
     const posts7d = parseInt(s.posts_7d) || 0;
     const badge = badges[i] || { text: '', cls: '' };
     const rankCls = i === 0 ? 'momentum-rank top' : 'momentum-rank';
-    return '<div class="momentum-row" onclick="window.location.href=\'/song/' + s.id + '?from=' + campaignId + '\'">' +
+    return '<div class="momentum-row" onclick="window.location.href='/song/' + s.id + '?from=' + campaignId + ''">' +
       '<div class="' + rankCls + '">' + medals[i] + '</div>' +
       '<div class="momentum-info">' +
         '<div class="momentum-name">' + escapeHtml(s.name) + '</div>' +
@@ -418,7 +455,40 @@ document.getElementById('song-name-input').addEventListener('keydown', function(
   if (e.key === 'Enter') addSong();
 });
 
+async function loadDeals() {
+  const res = await fetch('/api/campaigns/' + campaignId + '/deals');
+  if (!res.ok) return;
+  const deals = await res.json();
+  if (!deals.length) return;
+
+  const totalSpent = deals.reduce((s, d) => s + (d.amount_paid || 0), 0);
+  const totalViews = deals.reduce((s, d) => s + (d.total_views || 0), 0);
+  const avgCpv = totalViews > 0 ? totalSpent / totalViews : 0;
+  const industryAvg = 0.01; // $0.01 per view industry standard
+  const roi = industryAvg / avgCpv;
+
+  document.getElementById('deals-section').style.display = 'block';
+  document.getElementById('deals-summary').innerHTML =
+    '<div class="deals-stat"><div class="label">Total Invested</div><div class="value" style="color:var(--danger);">$' + totalSpent.toLocaleString() + '</div></div>' +
+    '<div class="deals-stat"><div class="label">Views from Paid Creators</div><div class="value green">' + fmt(totalViews) + '</div></div>' +
+    '<div class="deals-stat"><div class="label">Cost Per View vs Industry</div><div class="value accent">' + roi.toFixed(0) + 'x better</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;">$' + avgCpv.toFixed(6) + ' vs $0.01 avg</div></div>';
+
+  document.getElementById('deals-body').innerHTML = deals.map(function(d) {
+    const cpv = d.cpv || 0;
+    const industryX = cpv > 0 ? (0.01 / cpv).toFixed(0) + 'x' : '-';
+    return '<tr>' +
+      '<td class="creator">@' + escapeHtml(d.username) + '</td>' +
+      '<td style="color:var(--text-muted);">' + escapeHtml(d.notes || '') + '</td>' +
+      '<td class="amount">$' + (d.amount_paid || 0).toLocaleString() + '</td>' +
+      '<td class="views">' + fmt(d.total_views) + '</td>' +
+      '<td class="cpv">$' + cpv.toFixed(6) + '</td>' +
+      '<td><span class="roi-badge">' + industryX + ' better</span></td>' +
+      '</tr>';
+  }).join('');
+}
+
 load();
+loadDeals();
 </script>
 </body>
 </html>

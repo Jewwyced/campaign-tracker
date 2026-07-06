@@ -263,6 +263,30 @@ def detach_sound_from_campaign(campaign_id):
     return jsonify({"ok": True})
 
 
+@campaigns_bp.route("/api/campaigns/<int:campaign_id>/deals")
+def campaign_deals(campaign_id):
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                SELECT cd.*,
+                    COALESCE(SUM(p.views), 0) as total_views,
+                    COUNT(DISTINCT p.post_id) as post_count
+                FROM creator_deals cd
+                LEFT JOIN posts p ON p.username = cd.username
+                LEFT JOIN sounds snd ON snd.id = p.sound_db_id
+                LEFT JOIN campaign_songs cs ON cs.song_id = snd.song_id
+                WHERE cd.campaign_id = %s AND (cs.campaign_id = %s OR cs.campaign_id IS NULL)
+                GROUP BY cd.id
+                ORDER BY cd.amount_paid DESC
+            """, (campaign_id, campaign_id))
+            deals = [dict(r) for r in c.fetchall()]
+            for d in deals:
+                d['deal_date'] = str(d['deal_date'])
+                d['created_at'] = str(d['created_at'])
+                d['cpv'] = round(d['amount_paid'] / d['total_views'], 6) if d.get('total_views', 0) > 0 else 0
+    return jsonify(deals)
+
+
 @campaigns_bp.route("/api/campaign_insight", methods=["POST"])
 def campaign_insight():
     from services.ai_service import generate_campaign_insight
