@@ -200,7 +200,7 @@
       <button class="filter-btn active" id="f-popular" onclick="setFilter('popular')">Most Popular</button>
       <button class="filter-btn" id="f-recent" onclick="setFilter('recent')">Most Recent</button>
       <button class="filter-btn" id="f-week" onclick="setFilter('week')">This Week</button>
-      <button class="filter-btn" id="f-today" onclick="setFilter('today')">Today</button>
+      <button class="filter-btn" id="f-today" onclick="setFilter('today')">48h</button>
     </div>
   </div>
   <div class="posts-grid" id="posts-grid"><div class="loading">Loading posts...</div></div>
@@ -262,14 +262,9 @@ function renderPostsGrid() {
 
   let posts = [...allPosts];
   if (currentFilter === 'today') {
-    // Filter by TikTok post date (created_at is Unix timestamp)
-    const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
-    const endOfDay = startOfDay + 86400;
-    posts = posts.filter(function(p) {
-      const ts = parseInt(p.created_at);
-      return ts >= startOfDay && ts < endOfDay;
-    });
+    // Last 48 hours
+    const cutoff = Date.now()/1000 - (48 * 3600);
+    posts = posts.filter(function(p) { return parseInt(p.created_at) >= cutoff; });
   } else if (currentFilter === 'week') {
     // Filter by TikTok post date — last 7 days
     const cutoff = (Date.now() / 1000) - (7 * 86400);
@@ -368,7 +363,7 @@ function renderSoundsPanel(sounds) {
   const sorted = [...sounds].sort((a,b) => (parseFloat(b.velocity)||0) - (parseFloat(a.velocity)||0));
   el.innerHTML = sorted.map(s => {
     const vel = parseFloat(s.velocity) || 0;
-    const velEmoji = vel >= 0.2 ? '🔥' : vel >= 0.1 ? '📈' : vel > 0 ? '〰️' : '';
+    const velEmoji = vel >= 0.4 ? '🔥' : vel >= 0.2 ? '📈' : vel > 0 ? '〰️' : '';
     const velText = vel > 0 ? (vel * 100).toFixed(0) + '% daily velocity' : '';
     return `<div class="sound-row">
       <div style="flex:1;min-width:0;">
