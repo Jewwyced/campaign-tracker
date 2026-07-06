@@ -82,12 +82,11 @@ def _update_sound_velocity(db_conn_factory, sound_db_id):
         with conn.cursor() as c:
             c.execute("""
                 SELECT
-                    COUNT(*) FILTER (WHERE created_at::bigint >= %s) as posts_24h,
-                    COUNT(*) FILTER (WHERE created_at::bigint >= %s) as posts_7d
+                    COUNT(*) FILTER (WHERE created_at >= %s) as posts_24h,
+                    COUNT(*) FILTER (WHERE created_at >= %s) as posts_7d
                 FROM posts
                 WHERE sound_db_id = %s
                 AND created_at IS NOT NULL
-                AND created_at ~ '^[0-9]+$'
             """, (day_ago, week_ago, sound_db_id))
             row = c.fetchone()
             posts_24h = row["posts_24h"] or 0
