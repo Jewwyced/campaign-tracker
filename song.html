@@ -324,7 +324,7 @@ async function load() {
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.insight) {
-        document.getElementById('ai-insight-text').textContent = d.insight;
+        document.getElementById('ai-insight-text').textContent = d.insight.replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1');
         document.getElementById('ai-insight').style.display = 'block';
       }
     })
