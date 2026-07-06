@@ -75,9 +75,10 @@ def song_detail(song_id):
             song["created_at"] = str(song["created_at"])
 
             c.execute("""
-                SELECT id, sound_id, title, author, status, current_video_count
+                SELECT id, sound_id, title, author, status, current_video_count,
+                       posts_24h, posts_7d, velocity
                 FROM sounds WHERE song_id=%s AND status='approved'
-                ORDER BY current_video_count DESC NULLS LAST
+                ORDER BY velocity DESC NULLS LAST, current_video_count DESC NULLS LAST
             """, (song_id,))
             sounds = [dict(r) for r in c.fetchall()]
 
@@ -95,14 +96,22 @@ def song_detail(song_id):
             stats_row = dict(c.fetchone())
 
             c.execute("""
-                SELECT p.post_id, p.username, p.views, p.likes, p.comments,
-                       p.saves, p.shares, p.thumbnail, p.created_at, p.date
-                FROM posts p
-                JOIN sounds s ON s.id = p.sound_db_id
-                WHERE s.song_id = %s
-                ORDER BY p.views DESC NULLS LAST
-                LIMIT 20
-            """, (song_id,))
+                (SELECT p.post_id, p.username, p.views, p.likes, p.comments,
+                        p.saves, p.shares, p.thumbnail, p.created_at, p.date
+                 FROM posts p
+                 JOIN sounds s ON s.id = p.sound_db_id
+                 WHERE s.song_id = %s
+                 ORDER BY p.views DESC NULLS LAST
+                 LIMIT 20)
+                UNION
+                (SELECT p.post_id, p.username, p.views, p.likes, p.comments,
+                        p.saves, p.shares, p.thumbnail, p.created_at, p.date
+                 FROM posts p
+                 JOIN sounds s ON s.id = p.sound_db_id
+                 WHERE s.song_id = %s
+                 ORDER BY p.created_at DESC NULLS LAST
+                 LIMIT 20)
+            """, (song_id, song_id))
             top_posts = [dict(r) for r in c.fetchall()]
             for p in top_posts:
                 p["created_at"] = str(p["created_at"]) if p["created_at"] else None

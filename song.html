@@ -364,19 +364,24 @@ function togglePanel(panelId) {
 function renderSoundsPanel(sounds) {
   const el = document.getElementById('sounds-list-inline');
   if (!sounds.length) { el.innerHTML = '<div class="empty">No sounds tracked yet.</div>'; return; }
-  el.innerHTML = sounds.map(s => `
-    <div class="sound-row">
+  // Sort by velocity descending
+  const sorted = [...sounds].sort((a,b) => (parseFloat(b.velocity)||0) - (parseFloat(a.velocity)||0));
+  el.innerHTML = sorted.map(s => {
+    const vel = parseFloat(s.velocity) || 0;
+    const velEmoji = vel >= 0.4 ? '🔥' : vel >= 0.2 ? '📈' : vel > 0 ? '〰️' : '';
+    const velText = vel > 0 ? (vel * 100).toFixed(0) + '% daily velocity' : '';
+    return `<div class="sound-row">
       <div style="flex:1;min-width:0;">
-        <div class="sound-name">${escapeHtml(s.title||'Unknown sound')}</div>
-        <div class="sound-author">${escapeHtml(s.author||'')}</div>
+        <div class="sound-name">${escapeHtml(s.title||'Unknown sound')} ${velEmoji}</div>
+        <div class="sound-author">${escapeHtml(s.author||'')}${velText ? ' · <span style="color:var(--success-text);font-weight:600;">' + velText + '</span>' : ''}</div>
       </div>
       <div style="text-align:right;margin-right:8px;">
         <div class="sound-count">${fmt(s.current_video_count)}</div>
-        <div class="sound-count-lbl">videos</div>
+        <div class="sound-count-lbl">videos · ${s.posts_7d||0} this week</div>
       </div>
       <button class="delete-btn" onclick="event.preventDefault();deleteSound(${s.id})">×</button>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 function renderCreatorsPanel(posts) {

@@ -70,6 +70,40 @@ def _normalize_str(s):
     """Lowercase, remove punctuation and extra spaces for comparison."""
     return _re.sub(r'[^a-z0-9 ]', ' ', (s or "").lower()).strip()
 
+def _update_sound_velocity(db_conn_factory, sound_db_id):
+    """Calculate and store velocity metrics for a sound.
+    velocity = posts_24h / posts_7d — higher means rising faster."""
+    import time
+    now = int(time.time())
+    day_ago = now - 86400
+    week_ago = now - 7 * 86400
+
+    with db_conn_factory() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                SELECT
+                    COUNT(*) FILTER (WHERE created_at::bigint >= %s) as posts_24h,
+                    COUNT(*) FILTER (WHERE created_at::bigint >= %s) as posts_7d
+                FROM posts
+                WHERE sound_db_id = %s
+                AND created_at IS NOT NULL
+                AND created_at ~ '^[0-9]+$'
+            """, (day_ago, week_ago, sound_db_id))
+            row = c.fetchone()
+            posts_24h = row["posts_24h"] or 0
+            posts_7d = row["posts_7d"] or 0
+            velocity = round(posts_24h / posts_7d, 3) if posts_7d > 0 else 0
+
+            c.execute("""
+                UPDATE sounds SET posts_24h=%s, posts_7d=%s, velocity=%s
+                WHERE id=%s
+            """, (posts_24h, posts_7d, velocity, sound_db_id))
+        conn.commit()
+
+    _log(f"sound {sound_db_id} velocity: {posts_24h} posts/24h, {posts_7d} posts/7d, ratio={velocity}")
+    return velocity
+
+
 def _score_sound(sound, title, artist):
     """Score a sound candidate by relevance to the song title and artist.
     Higher score = better match. Used to rank sounds before taking the top 5.
@@ -205,11 +239,50 @@ def _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_resul
 # ── Public service functions ──────────────────────────────────────────────────
 
 def discover_sounds(query):
-    """Search TikTok for sounds matching a query. No database writes."""
+    """Search TikTok for sounds matching a query. No database writes.
+    Uses TikLive search-video with publish_time=7 to find sounds from this week."""
     raw = provider.search_sounds(query)
     sounds = parse_sounds_from_search(raw)
     _log(f"search '{query}' found {len(sounds)} distinct sounds")
     return sounds
+
+
+def discover_sounds_from_videos(query, publish_time=7):
+    """Workflow B: discover sounds by searching recent videos and extracting music IDs.
+    This finds NEW sounds being used this week, not historically relevant sounds.
+    Returns list of dicts with sound_id, title, author, frequency (how many videos used it)."""
+    raw = provider.search_sounds(query)
+    if not raw:
+        return []
+
+    # parse_sounds_from_search returns deduplicated sounds
+    # but we want frequency counts — re-parse manually
+    data = raw if isinstance(raw, dict) else {}
+    items = data.get("data", [])
+
+    # Count frequency of each music ID
+    music_counts = {}
+    music_meta = {}
+    for entry in items:
+        item = entry.get("item", {})
+        music = item.get("music", {})
+        mid = str(music.get("id", ""))
+        if not mid:
+            continue
+        music_counts[mid] = music_counts.get(mid, 0) + 1
+        if mid not in music_meta:
+            music_meta[mid] = {
+                "sound_id": mid,
+                "title": music.get("title", "Unknown"),
+                "author": music.get("authorName", ""),
+                "frequency": 0,
+            }
+        music_meta[mid]["frequency"] = music_counts[mid]
+
+    # Sort by frequency (most used sounds this week first)
+    results = sorted(music_meta.values(), key=lambda x: x["frequency"], reverse=True)
+    _log(f"discover_sounds_from_videos: found {len(results)} unique sounds from {len(items)} videos")
+    return results
 
 
 def create_sound(db_conn_factory, song_id, sound):
@@ -276,42 +349,47 @@ def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_res
 
     if not result.get("error"):
         _touch_sound_ingested(db_conn_factory, sound_db_id)
+        _update_sound_velocity(db_conn_factory, sound_db_id)
 
     return result
 
 
 def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
-    """Find the top 5 most relevant TikTok sounds for a Song and ingest each one."""
+    """Workflow B sound discovery: search recent videos, extract music IDs,
+    score by relevance + frequency, ingest top 20 sounds.
+    Finds sounds actually being used THIS WEEK, not historically."""
     query = f"{title} {artist}".strip()
-    all_sounds = discover_sounds(query)
 
-    # Deduplicate by sound_id before scoring
+    # Workflow B: extract music IDs from recent video search
+    video_sounds = discover_sounds_from_videos(query)
+
+    # Also try traditional search as fallback
+    traditional_sounds = discover_sounds(query)
+
+    # Merge both, deduplicating by sound_id
     seen_ids = set()
-    unique_sounds = []
-    for s in all_sounds:
+    all_sounds = []
+    for s in video_sounds + traditional_sounds:
         sid = s.get("sound_id")
         if sid and sid not in seen_ids:
             seen_ids.add(sid)
-            unique_sounds.append(s)
+            all_sounds.append(s)
 
-    # Score and rank by relevance, then take top 5
-    ranked_sounds = sorted(
-        unique_sounds,
-        key=lambda s: _score_sound(s, title, artist),
-        reverse=True
-    )[:20]
+    # Score: relevance + frequency bonus (sounds used in many recent videos rank higher)
+    def score(s):
+        base = _score_sound(s, title, artist)
+        freq_bonus = min(s.get("frequency", 0) * 5, 50)
+        return base + freq_bonus
 
-    _log(f"discover_song_sounds: {len(all_sounds)} found -> {len(unique_sounds)} unique -> top {len(ranked_sounds)} selected")
+    ranked_sounds = sorted(all_sounds, key=score, reverse=True)[:20]
 
-    # Log scores for debugging
-    for i, s in enumerate(ranked_sounds):
-        score = _score_sound(s, title, artist)
-        _log(f"  #{i+1} '{s.get('title')}' by '{s.get('author')}' — score {score}")
+    _log(f"discover_song_sounds: {len(all_sounds)} unique -> top {len(ranked_sounds)} selected")
+    for i, s in enumerate(ranked_sounds[:5]):
+        _log(f"  #{i+1} '{s.get('title')}' by '{s.get('author')}' score={score(s)} freq={s.get('frequency',0)}")
 
     results = []
     for s in ranked_sounds:
         try:
-            # Always get or create — so existing sounds get refreshed too
             sound_db_id = get_or_create_sound(db_conn_factory, song_id, s)
             if sound_db_id:
                 ingest_result = ingest_sound(db_conn_factory, song_id, sound_db_id, s["sound_id"], max_results=30)
