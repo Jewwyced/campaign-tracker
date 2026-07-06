@@ -34,7 +34,7 @@ class TikLiveAPIProvider:
     def _get(self, path, params):
         url = f"{BASE_URL}{path}"
         try:
-            r = requests.get(url, params=params, headers=self._headers(), timeout=30)
+            r = requests.get(url, params=params, headers=self._headers(), timeout=10)
             _log(f"{path} -> {r.status_code}")
             if r.status_code == 429:
                 _log("  rate limited")

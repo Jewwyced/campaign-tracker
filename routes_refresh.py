@@ -68,7 +68,7 @@ def refresh():
         ingested = 0
         for s in song_sounds:
             result = ingestion.ingest_sound(
-                db, s["song_id"], s["sound_db_id"], s["tiktok_sound_id"], max_results=30
+                db, s["song_id"], s["sound_db_id"], s["tiktok_sound_id"], max_results=10
             )
             if result.get("source") == "cache":
                 skipped += 1
