@@ -112,6 +112,11 @@
   .song-card .delete-btn:hover { background: var(--danger-bg); color: var(--danger); }
   .empty { padding: 48px; text-align: center; color: var(--text-muted); font-size: 14px; line-height: 1.6; }
 
+  /* Line chart */
+  .chart-section { margin-bottom: 28px; }
+  .chart-canvas-wrap { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  canvas#trend-chart { width: 100% !important; height: 200px !important; }
+
   /* Deals */
   .deals-section { margin-top: 32px; }
   .deals-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
@@ -131,6 +136,7 @@
   .deals-table .cpv { color: var(--accent); font-weight: 600; }
   .roi-badge { display: inline-block; background: var(--success-bg); color: var(--success-text); font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 </head>
 <body>
 <header>
@@ -168,6 +174,14 @@
     <div class="stat-box"><div class="label">Creators</div><div class="value" id="stat-creators">-</div></div>
     <div class="stat-box"><div class="label">Total views</div><div class="value" id="stat-views">-</div></div>
     <div class="stat-box"><div class="label">Avg engagement</div><div class="value" id="stat-eng">-</div></div>
+  </div>
+
+  <!-- Trend Chart -->
+  <div class="chart-section">
+    <div class="section-label">Views Over Time</div>
+    <div class="chart-canvas-wrap">
+      <canvas id="trend-chart"></canvas>
+    </div>
   </div>
 
   <!-- Momentum -->
@@ -275,6 +289,7 @@ async function load() {
     renderSongs();
     renderOverviewStats(postsData.posts || []);
     renderChart();
+    renderTrendChart(postsData.posts || []);
     loadAIRecommendation();
   } catch(e) { console.error(e); }
 }
@@ -288,6 +303,63 @@ function renderOverviewStats(posts) {
   document.getElementById('stat-creators').textContent = creators || '-';
   const avgEng = totalViews > 0 ? totalLikes / totalViews : 0;
   document.getElementById('stat-eng').textContent = pct(avgEng);
+}
+
+function renderTrendChart(posts) {
+  // Group posts by date and sum views
+  const byDate = {};
+  posts.forEach(function(p) {
+    const date = (p.date || '').substring(0, 10);
+    if (!date) return;
+    byDate[date] = (byDate[date] || 0) + (parseInt(p.views) || 0);
+  });
+
+  const sorted = Object.keys(byDate).sort();
+  const labels = sorted.map(function(d) {
+    const dt = new Date(d + 'T00:00:00');
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  });
+  const values = sorted.map(function(d) { return byDate[d]; });
+
+  const ctx = document.getElementById('trend-chart');
+  if (!ctx) return;
+  if (window._trendChart) window._trendChart.destroy();
+  window._trendChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Views',
+        data: values,
+        borderColor: '#6366f1',
+        backgroundColor: 'rgba(99,102,241,0.08)',
+        borderWidth: 2,
+        pointRadius: 3,
+        pointBackgroundColor: '#6366f1',
+        tension: 0.4,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 11 }, maxTicksLimit: 10 } },
+        y: {
+          grid: { color: 'rgba(0,0,0,0.04)' },
+          ticks: {
+            font: { size: 11 },
+            callback: function(v) {
+              if (v >= 1e6) return (v/1e6).toFixed(1) + 'M';
+              if (v >= 1e3) return (v/1e3).toFixed(0) + 'K';
+              return v;
+            }
+          }
+        }
+      }
+    }
+  });
 }
 
 function renderChart() {
