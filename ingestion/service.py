@@ -25,7 +25,7 @@ from .parsers import (
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-SOUND_FRESHNESS_HOURS = 6
+SOUND_FRESHNESS_HOURS = 3
 
 SOURCE_CACHE    = "cache"
 SOURCE_TIKAPI   = "tikapi"
