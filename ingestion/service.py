@@ -25,7 +25,7 @@ from .parsers import (
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-SOUND_FRESHNESS_HOURS = 3
+SOUND_FRESHNESS_HOURS = 6
 
 SOURCE_CACHE    = "cache"
 SOURCE_TIKAPI   = "tikapi"
@@ -194,7 +194,7 @@ def _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_resul
     all_posts = []
     cursor = 0
     while len(all_posts) < max_results:
-        raw = provider.get_sound_posts_page(tiktok_sound_id, cursor=cursor, count=35)
+        raw = provider.get_sound_posts_page(tiktok_sound_id, cursor=cursor, count=30)
         posts, has_more, next_cursor = parse_posts_from_music_page(raw)
         if not posts:
             break
