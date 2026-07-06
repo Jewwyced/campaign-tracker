@@ -267,23 +267,31 @@ def detach_sound_from_campaign(campaign_id):
 def campaign_deals(campaign_id):
     with db() as conn:
         with conn.cursor() as c:
+            # Get deals for this campaign
             c.execute("""
-                SELECT cd.*,
-                    COALESCE(SUM(p.views), 0) as total_views,
-                    COUNT(DISTINCT p.post_id) as post_count
+                SELECT cd.id, cd.username, cd.amount_paid, cd.notes, cd.deal_date, cd.created_at
                 FROM creator_deals cd
-                LEFT JOIN posts p ON p.username = cd.username
-                LEFT JOIN sounds snd ON snd.id = p.sound_db_id
-                LEFT JOIN campaign_songs cs ON cs.song_id = snd.song_id
-                WHERE cd.campaign_id = %s AND (cs.campaign_id = %s OR cs.campaign_id IS NULL)
-                GROUP BY cd.id
+                WHERE cd.campaign_id = %s
                 ORDER BY cd.amount_paid DESC
-            """, (campaign_id, campaign_id))
+            """, (campaign_id,))
             deals = [dict(r) for r in c.fetchall()]
+
+            # For each deal, get total views from that creator's posts in this campaign
             for d in deals:
+                c.execute("""
+                    SELECT COALESCE(SUM(p.views), 0) as total_views,
+                           COUNT(DISTINCT p.post_id) as post_count
+                    FROM posts p
+                    JOIN sounds snd ON snd.id = p.sound_db_id
+                    JOIN campaign_songs cs ON cs.song_id = snd.song_id
+                    WHERE cs.campaign_id = %s AND p.username = %s
+                """, (campaign_id, d['username']))
+                stats = c.fetchone()
+                d['total_views'] = stats['total_views'] or 0
+                d['post_count'] = stats['post_count'] or 0
                 d['deal_date'] = str(d['deal_date'])
                 d['created_at'] = str(d['created_at'])
-                d['cpv'] = round(d['amount_paid'] / d['total_views'], 6) if d.get('total_views', 0) > 0 else 0
+                d['cpv'] = round(d['amount_paid'] / d['total_views'], 6) if d['total_views'] > 0 else 0
     return jsonify(deals)
 
 

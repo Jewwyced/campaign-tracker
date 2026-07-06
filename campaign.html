@@ -311,7 +311,7 @@ function renderChart() {
     const posts7d = parseInt(s.posts_7d) || 0;
     const badge = badges[i] || { text: '', cls: '' };
     const rankCls = i === 0 ? 'momentum-rank top' : 'momentum-rank';
-    return '<div class="momentum-row" onclick="window.location.href='/song/' + s.id + '?from=' + campaignId + ''">' +
+    return '<div class="momentum-row" onclick="window.location.href=\'/song/' + s.id + '?from=' + campaignId + '\'">' +
       '<div class="' + rankCls + '">' + medals[i] + '</div>' +
       '<div class="momentum-info">' +
         '<div class="momentum-name">' + escapeHtml(s.name) + '</div>' +
