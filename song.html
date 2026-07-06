@@ -368,7 +368,7 @@ function renderSoundsPanel(sounds) {
   const sorted = [...sounds].sort((a,b) => (parseFloat(b.velocity)||0) - (parseFloat(a.velocity)||0));
   el.innerHTML = sorted.map(s => {
     const vel = parseFloat(s.velocity) || 0;
-    const velEmoji = vel >= 0.4 ? '🔥' : vel >= 0.2 ? '📈' : vel > 0 ? '〰️' : '';
+    const velEmoji = vel >= 0.2 ? '🔥' : vel >= 0.1 ? '📈' : vel > 0 ? '〰️' : '';
     const velText = vel > 0 ? (vel * 100).toFixed(0) + '% daily velocity' : '';
     return `<div class="sound-row">
       <div style="flex:1;min-width:0;">
