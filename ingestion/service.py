@@ -350,6 +350,19 @@ def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_res
         _touch_sound_ingested(db_conn_factory, sound_db_id)
         _update_sound_velocity(db_conn_factory, sound_db_id)
 
+        # If sound has no posts and no video count, mark inactive
+        video_count = result.get("video_count", 0) or 0
+        posts_added = result.get("posts_added", 0) or 0
+        if video_count == 0 and posts_added == 0:
+            with db_conn_factory() as conn:
+                with conn.cursor() as c:
+                    c.execute("""
+                        UPDATE sounds SET status='inactive'
+                        WHERE id=%s AND status='approved'
+                    """, (sound_db_id,))
+                conn.commit()
+            _log(f"sound {sound_db_id} marked inactive (0 posts, 0 video_count)")
+
     return result
 
 
