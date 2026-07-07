@@ -2,246 +2,163 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Sound lookup</title>
+<title>Sound Lookup</title>
 <style>
   :root {
-    --bg: #ffffff;
-    --surface-1: #f7f7f8;
-    --surface-2: #f0f0f2;
+    --bg: #fafafa;
+    --surface: #ffffff;
     --border: #e4e4e7;
-    --text-primary: #18181b;
+    --border-light: #f0f0f2;
+    --text-primary: #09090b;
     --text-secondary: #52525b;
     --text-muted: #a1a1aa;
     --accent: #6366f1;
-    --accent-dim: #4f46e5;
+    --accent-light: #eef2ff;
+    --success: #059669;
     --success-bg: #ecfdf5;
-    --success-text: #059669;
-    --warning-bg: #fffbeb;
-    --warning-text: #b45309;
-    --neutral-bg: #f0f0f2;
-    --neutral-text: #71717a;
     --danger: #dc2626;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: var(--bg);
-    color: var(--text-primary);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  }
-  header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 20px 32px;
-    border-bottom: 1px solid var(--border);
-  }
-  header a {
-    font-size: 13px;
-    color: var(--text-secondary);
-    text-decoration: none;
-    margin-right: 16px;
-  }
-  header a.current { color: var(--text-primary); font-weight: 500; }
-  header a:hover { color: var(--text-primary); }
-  main {
-    padding: 28px 32px;
-    max-width: 1100px;
-    margin: 0 auto;
-  }
-  .title { font-size: 18px; font-weight: 500; margin-bottom: 4px; }
-  .subtitle { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; }
+  body { background: var(--bg); color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; padding: 0 32px; border-bottom: 1px solid var(--border); height: 52px; background: white; }
+  header .nav a { font-size: 13px; color: var(--text-secondary); text-decoration: none; margin-right: 20px; }
+  header .nav a:hover { color: var(--text-primary); }
+  header .nav a.active { color: var(--text-primary); font-weight: 600; border-bottom: 2px solid var(--accent); padding-bottom: 2px; }
+  main { padding: 32px; max-width: 900px; margin: 0 auto; }
 
-  .search-row {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 12px;
-  }
-  input[type=text] {
-    flex: 1;
-    font-family: inherit;
-    font-size: 14px;
-    padding: 9px 12px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--bg);
-    color: var(--text-primary);
-  }
+  .page-title { font-size: 24px; font-weight: 700; margin-bottom: 6px; }
+  .page-sub { font-size: 14px; color: var(--text-muted); margin-bottom: 28px; }
+
+  .search-card { background: white; border: 1px solid var(--border); border-radius: 14px; padding: 24px; margin-bottom: 24px; }
+  .search-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+  .search-row { display: flex; gap: 8px; }
+  input[type=text] { flex: 1; font-family: inherit; font-size: 14px; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text-primary); }
   input[type=text]:focus { outline: none; border-color: var(--accent); }
-  button {
-    font-size: 13px;
-    font-family: inherit;
-    background: var(--accent);
-    color: white;
-    border: none;
-    padding: 9px 16px;
-    border-radius: 8px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  button:hover { background: var(--accent-dim); }
-  button:disabled { background: var(--text-muted); cursor: default; }
-  #search-error { font-size: 13px; color: var(--danger); margin-bottom: 16px; }
-  #search-hint { font-size: 12px; color: var(--text-muted); margin-bottom: 20px; }
+  .btn { font-size: 13px; font-family: inherit; background: var(--accent); color: white; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; white-space: nowrap; font-weight: 500; }
+  .btn:hover { background: #4f46e5; }
+  .btn:disabled { background: var(--text-muted); cursor: default; }
+  .divider { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: var(--text-muted); font-size: 12px; }
+  .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .hint { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+  .error { font-size: 13px; color: var(--danger); margin-top: 8px; }
 
-  .sound-header {
-    display: none;
-    margin-bottom: 20px;
-  }
-  .sound-header .name { font-size: 18px; font-weight: 500; }
-  .sound-header .meta { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+  /* Sound list from search */
+  .sound-list { background: white; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 24px; }
+  .sound-item { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border-light); cursor: pointer; transition: background .1s; }
+  .sound-item:last-child { border-bottom: none; }
+  .sound-item:hover { background: var(--bg); }
+  .sound-item-name { font-size: 14px; font-weight: 600; }
+  .sound-item-author { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .sound-item-arrow { color: var(--text-muted); font-size: 18px; }
 
-  .stat-row {
-    display: none;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-    margin-bottom: 24px;
-  }
-  .stat-box {
-    background: var(--surface-1);
-    border-radius: 10px;
-    padding: 14px 16px;
-  }
-  .stat-box .label { font-size: 12px; color: var(--text-muted); }
-  .stat-box .value { font-size: 20px; font-weight: 500; margin-top: 4px; }
+  /* Result */
+  .result-header { background: white; border: 1px solid var(--border); border-radius: 14px; padding: 24px; margin-bottom: 16px; display: none; }
+  .result-title { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
+  .result-author { font-size: 14px; color: var(--text-muted); margin-top: 4px; }
+  .result-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 20px; }
+  .result-stat { background: var(--bg); border-radius: 10px; padding: 14px 16px; }
+  .result-stat .lbl { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+  .result-stat .val { font-size: 22px; font-weight: 800; margin-top: 4px; letter-spacing: -0.5px; }
+  .result-stat .val.green { color: var(--success); }
+  .result-stat .val.accent { color: var(--accent); }
 
-  .table-wrap {
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow: hidden;
-  }
-  .row {
-    display: grid;
-    grid-template-columns: 1.4fr 2.2fr 0.8fr 0.8fr 0.8fr 0.5fr;
-    padding: 12px 16px;
-    align-items: center;
-    border-top: 1px solid var(--border);
-    font-size: 13px;
-  }
-  .row.header-row {
-    border-top: none;
-    background: var(--surface-1);
-    font-size: 12px;
-    color: var(--text-muted);
-    padding: 10px 16px;
-  }
-  .creator { color: var(--text-secondary); }
-  .caption {
-    color: var(--text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .row-actions { text-align: right; }
-  .row-actions a {
-    color: var(--text-muted);
-    text-decoration: none;
-    font-size: 13px;
-  }
-  .row-actions a:hover { color: var(--text-primary); }
-
-  .empty {
-    padding: 48px;
-    text-align: center;
-    color: var(--text-muted);
-    font-size: 14px;
-  }
-  #status { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; min-height: 16px; }
-  .sound-list {
-    display: none;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow: hidden;
-    margin-bottom: 28px;
-  }
-  .sound-list-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    border-top: 1px solid var(--border);
-    cursor: pointer;
-  }
-  .sound-list-item:first-child { border-top: none; }
-  .sound-list-item:hover { background: var(--surface-1); }
-  .sound-list-item .name { font-size: 14px; font-weight: 500; }
-  .sound-list-item .author { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
-  .section-divider {
-    font-size: 12px;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: .5px;
-    margin: 28px 0 12px;
-  }
+  /* Posts table */
+  .posts-section { display: none; }
+  .posts-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+  .posts-table { background: white; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .table-header { display: grid; grid-template-columns: 1.5fr 2fr 1fr 1fr 1fr 40px; padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .4px; }
+  .table-row { display: grid; grid-template-columns: 1.5fr 2fr 1fr 1fr 1fr 40px; padding: 12px 16px; border-bottom: 1px solid var(--border-light); font-size: 13px; align-items: center; }
+  .table-row:last-child { border-bottom: none; }
+  .table-row:hover { background: var(--bg); }
+  .creator { font-weight: 600; }
+  .caption { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .link-btn { color: var(--text-muted); text-decoration: none; font-size: 16px; }
+  .link-btn:hover { color: var(--text-primary); }
+  .empty { padding: 48px; text-align: center; color: var(--text-muted); font-size: 14px; }
+  .status { font-size: 13px; color: var(--text-muted); margin-bottom: 12px; }
 </style>
 </head>
 <body>
-
 <header>
-  <div>
+  <div class="nav">
     <a href="/">Dashboard</a>
     <a href="/campaigns">Campaigns</a>
-    
     <a href="/artists">Artists</a>
-    <a href="/sounds" class="current">Sound lookup</a>
+    <a href="/sounds" class="active">Sound lookup</a>
   </div>
 </header>
-
 <main>
-  <div class="title">Sound lookup</div>
-  <div class="subtitle">Search a song to find its sounds, or paste a link directly.</div>
+  <div class="page-title">Sound Lookup</div>
+  <div class="page-sub">Search any song to find its TikTok sounds, or paste a video/sound link directly.</div>
 
-  <div class="search-row">
-    <input type="text" id="song-search-input" placeholder="Search a song name, e.g. Drive by Incubus">
-    <button onclick="searchSongs()" id="song-search-btn">Search</button>
-  </div>
-  <div id="song-search-error"></div>
-  <div id="song-status"></div>
-
-  <div class="sound-list" id="sound-list"></div>
-
-  <div class="section-divider">Or look up a specific sound directly</div>
-
-  <div class="search-row">
-    <input type="text" id="search-input" placeholder="Paste a TikTok video link, or enter a sound ID">
-    <button onclick="search()" id="search-btn">Search</button>
-  </div>
-  <div id="search-error"></div>
-  <div id="search-hint">Tip: paste any video that uses the sound you're looking for — we'll find the sound from it.</div>
-
-  <div id="status"></div>
-
-  <div class="sound-header" id="sound-header">
-    <div class="name" id="sound-name"></div>
-    <div class="meta" id="sound-meta"></div>
-  </div>
-
-  <div class="stat-row" id="stat-row">
-    <div class="stat-box"><div class="label">Videos shown</div><div class="value" id="stat-shown">-</div></div>
-    <div class="stat-box"><div class="label">Total videos (TikTok)</div><div class="value" id="stat-total">-</div></div>
-    <div class="stat-box"><div class="label">Total views (shown)</div><div class="value" id="stat-views">-</div></div>
-  </div>
-
-  <div class="table-wrap" id="table-wrap" style="display:none;">
-    <div class="row header-row">
-      <div>Creator</div>
-      <div>Caption</div>
-      <div>Views</div>
-      <div>Likes</div>
-      <div>Comments</div>
-      <div></div>
+  <div class="search-card">
+    <div class="search-label">Search by song name</div>
+    <div class="search-row">
+      <input type="text" id="song-input" placeholder='e.g. "Back Home Yeat" or "Griddle"'>
+      <button class="btn" onclick="searchSongs()" id="song-btn">Search</button>
     </div>
-    <div id="post-rows"></div>
+    <div class="error" id="song-error"></div>
+
+    <div class="divider">or</div>
+
+    <div class="search-label">Look up a specific sound</div>
+    <div class="search-row">
+      <input type="text" id="sound-input" placeholder="Paste a TikTok video link or sound ID">
+      <button class="btn" onclick="lookupSound()" id="sound-btn">Look up</button>
+    </div>
+    <div class="hint">Tip: paste any TikTok video — we'll extract the sound automatically.</div>
+    <div class="error" id="sound-error"></div>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <!-- Sound list from search -->
+  <div class="sound-list" id="sound-list" style="display:none;"></div>
+
+  <!-- Result -->
+  <div class="result-header" id="result-header">
+    <div class="result-title" id="result-title"></div>
+    <div class="result-author" id="result-author"></div>
+    <div class="result-stats">
+      <div class="result-stat">
+        <div class="lbl">Total Videos on TikTok</div>
+        <div class="val accent" id="stat-total">—</div>
+      </div>
+      <div class="result-stat">
+        <div class="lbl">Videos Shown</div>
+        <div class="val" id="stat-shown">—</div>
+      </div>
+      <div class="result-stat">
+        <div class="lbl">Total Views (Shown)</div>
+        <div class="val green" id="stat-views">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="posts-section" id="posts-section">
+    <div class="posts-title">Top Videos</div>
+    <div class="posts-table">
+      <div class="table-header">
+        <div>Creator</div>
+        <div>Caption</div>
+        <div>Views</div>
+        <div>Likes</div>
+        <div>Comments</div>
+        <div></div>
+      </div>
+      <div id="post-rows"></div>
+    </div>
   </div>
 </main>
 
 <script>
 function fmt(n) {
-  if (n == null || isNaN(n)) return '-';
+  if (n == null || isNaN(n)) return '—';
+  if (n >= 1e9) return (n/1e9).toFixed(1) + 'B';
   if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
   if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
   return String(n);
 }
-
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str || '';
@@ -249,152 +166,115 @@ function escapeHtml(str) {
 }
 
 async function searchSongs() {
-  const input = document.getElementById('song-search-input');
-  const btn = document.getElementById('song-search-btn');
-  const errEl = document.getElementById('song-search-error');
-  const statusEl = document.getElementById('song-status');
-  const query = input.value.trim();
-  if (!query) return;
-
-  btn.disabled = true;
-  btn.textContent = 'Searching...';
+  const input = document.getElementById('song-input');
+  const btn = document.getElementById('song-btn');
+  const errEl = document.getElementById('song-error');
+  const q = input.value.trim();
+  if (!q) return;
+  btn.disabled = true; btn.textContent = 'Searching...';
   errEl.textContent = '';
-  statusEl.textContent = 'Searching TikTok...';
+  document.getElementById('status').textContent = 'Searching TikTok...';
   document.getElementById('sound-list').style.display = 'none';
+  hideResult();
 
   try {
     const res = await fetch('/api/sound_search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query })
+      body: JSON.stringify({ query: q })
     });
     const data = await res.json();
-    if (!res.ok) {
-      errEl.textContent = data.error || 'Something went wrong.';
-      statusEl.textContent = '';
-      return;
-    }
-    renderSoundList(data.sounds);
-    statusEl.textContent = data.sounds.length === 0
-      ? 'No sounds found for that search.'
-      : `${data.sounds.length} distinct sound${data.sounds.length === 1 ? '' : 's'} found.`;
-  } catch (e) {
-    errEl.textContent = 'Could not reach the server.';
-    statusEl.textContent = '';
-  }
+    if (!res.ok) { errEl.textContent = data.error || 'Something went wrong.'; }
+    else { renderSoundList(data.sounds || []); }
+  } catch(e) { errEl.textContent = 'Could not reach the server.'; }
 
-  btn.disabled = false;
-  btn.textContent = 'Search';
+  document.getElementById('status').textContent = '';
+  btn.disabled = false; btn.textContent = 'Search';
 }
 
 function renderSoundList(sounds) {
-  const listEl = document.getElementById('sound-list');
-  if (sounds.length === 0) {
-    listEl.style.display = 'none';
+  const el = document.getElementById('sound-list');
+  if (!sounds.length) {
+    document.getElementById('status').textContent = 'No sounds found.';
+    el.style.display = 'none';
     return;
   }
-  listEl.innerHTML = sounds.map(s => `
-    <div class="sound-list-item" onclick="window.location.href='/sounds/${s.sound_id}'">
-      <div>
-        <div class="name">${escapeHtml(s.title)}</div>
-        <div class="author">${escapeHtml(s.author) || 'Unknown creator'}</div>
-      </div>
-      <div style="color: var(--text-muted);">&rsaquo;</div>
-    </div>
-  `).join('');
-  listEl.style.display = 'block';
+  document.getElementById('status').textContent = sounds.length + ' sounds found — click one to see its videos.';
+  el.innerHTML = sounds.map(function(s) {
+    return '<div class="sound-item" onclick="lookupById(\'' + escapeHtml(s.sound_id) + '\')">' +
+      '<div><div class="sound-item-name">' + escapeHtml(s.title || 'Unknown sound') + '</div>' +
+      '<div class="sound-item-author">' + escapeHtml(s.author || '') + '</div></div>' +
+      '<div class="sound-item-arrow">›</div></div>';
+  }).join('');
+  el.style.display = 'block';
 }
 
-function lookupFromList(soundId) {
-  document.getElementById('search-input').value = soundId;
-  search();
-  document.getElementById('sound-header').scrollIntoView({ behavior: 'smooth', block: 'start' });
+async function lookupById(soundId) {
+  document.getElementById('sound-input').value = soundId;
+  await lookupSound();
 }
 
-async function search() {
-  const input = document.getElementById('search-input');
-  const btn = document.getElementById('search-btn');
-  const errEl = document.getElementById('search-error');
-  const statusEl = document.getElementById('status');
-  const query = input.value.trim();
-  if (!query) return;
-
-  btn.disabled = true;
-  btn.textContent = 'Searching...';
+async function lookupSound() {
+  const input = document.getElementById('sound-input');
+  const btn = document.getElementById('sound-btn');
+  const errEl = document.getElementById('sound-error');
+  const q = input.value.trim();
+  if (!q) return;
+  btn.disabled = true; btn.textContent = 'Looking up...';
   errEl.textContent = '';
-  statusEl.textContent = 'Pulling videos from TikTok — this can take a moment...';
-  document.getElementById('sound-header').style.display = 'none';
-  document.getElementById('stat-row').style.display = 'none';
-  document.getElementById('table-wrap').style.display = 'none';
+  document.getElementById('status').textContent = 'Pulling videos from TikTok...';
+  hideResult();
 
   try {
     const res = await fetch('/api/sound_lookup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query })
+      body: JSON.stringify({ query: q })
     });
     const data = await res.json();
-    if (!res.ok) {
-      errEl.textContent = data.error || 'Something went wrong.';
-      statusEl.textContent = '';
-      return;
-    }
-    render(data);
-    statusEl.textContent = '';
-  } catch (e) {
-    errEl.textContent = 'Could not reach the server.';
-    statusEl.textContent = '';
-  }
+    if (!res.ok) { errEl.textContent = data.error || 'Something went wrong.'; }
+    else { renderResult(data); }
+  } catch(e) { errEl.textContent = 'Could not reach the server.'; }
 
-  btn.disabled = false;
-  btn.textContent = 'Search';
+  document.getElementById('status').textContent = '';
+  btn.disabled = false; btn.textContent = 'Look up';
 }
 
-function render(data) {
-  document.getElementById('sound-name').textContent = data.title;
-  document.getElementById('sound-meta').textContent = data.author ? `by ${data.author}` : '';
-  document.getElementById('sound-header').style.display = 'block';
-
-  const totalViews = data.posts.reduce((sum, p) => sum + (p.views || 0), 0);
-  document.getElementById('stat-shown').textContent = data.posts.length;
+function renderResult(data) {
+  document.getElementById('result-title').textContent = data.title || 'Unknown sound';
+  document.getElementById('result-author').textContent = data.author ? 'by ' + data.author : '';
+  const totalViews = (data.posts || []).reduce(function(s,p) { return s + (p.views||0); }, 0);
   document.getElementById('stat-total').textContent = fmt(data.video_count);
+  document.getElementById('stat-shown').textContent = (data.posts || []).length;
   document.getElementById('stat-views').textContent = fmt(totalViews);
-  document.getElementById('stat-row').style.display = 'grid';
+  document.getElementById('result-header').style.display = 'block';
 
-  const tableWrap = document.getElementById('table-wrap');
   const rowsEl = document.getElementById('post-rows');
-
-  if (data.posts.length === 0) {
-    tableWrap.style.display = 'block';
+  if (!data.posts || !data.posts.length) {
     rowsEl.innerHTML = '<div class="empty">No videos found for this sound.</div>';
-    return;
+  } else {
+    rowsEl.innerHTML = data.posts.map(function(p) {
+      const url = 'https://www.tiktok.com/@' + encodeURIComponent(p.username) + '/video/' + p.post_id;
+      return '<div class="table-row">' +
+        '<div class="creator">@' + escapeHtml(p.username) + '</div>' +
+        '<div class="caption">' + escapeHtml(p.description || '—') + '</div>' +
+        '<div>' + fmt(p.views) + '</div>' +
+        '<div>' + fmt(p.likes) + '</div>' +
+        '<div>' + fmt(p.comments) + '</div>' +
+        '<div><a class="link-btn" href="' + url + '" target="_blank">↗</a></div>' +
+        '</div>';
+    }).join('');
   }
-
-  rowsEl.innerHTML = data.posts.map(p => {
-    const videoUrl = `https://www.tiktok.com/@${p.username}/video/${p.post_id}`;
-    return `
-      <div class="row">
-        <div class="creator">@${escapeHtml(p.username)}</div>
-        <div class="caption" title="${escapeHtml(p.description)}">${escapeHtml(p.description) || '-'}</div>
-        <div>${fmt(p.views)}</div>
-        <div>${fmt(p.likes)}</div>
-        <div>${fmt(p.comments)}</div>
-        <div class="row-actions"><a href="${videoUrl}" target="_blank">&#8599;</a></div>
-      </div>
-    `;
-  }).join('');
-
-  tableWrap.style.display = 'block';
+  document.getElementById('posts-section').style.display = 'block';
 }
 
-document.getElementById('song-search-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') searchSongs();
-});
+function hideResult() {
+  document.getElementById('result-header').style.display = 'none';
+  document.getElementById('posts-section').style.display = 'none';
+}
 
-document.getElementById('search-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') search();
-});
+document.getElementById('song-input').addEventListener('keydown', function(e) { if(e.key==='Enter') searchSongs(); });
+document.getElementById('sound-input').addEventListener('keydown', function(e) { if(e.key==='Enter') lookupSound(); });
 </script>
-
 </body>
 </html>
