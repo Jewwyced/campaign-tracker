@@ -194,6 +194,27 @@ class TikLiveAPIProvider:
         return {"data": items}
 
 
+    def search_challenge(self, keyword):
+        """Search for a hashtag challenge by keyword. Returns list of challenges with IDs."""
+        data = self._get("/search-challenge/", {"keyword": keyword, "count": 5})
+        if not data:
+            return []
+        return data.get("challenge_list", [])
+
+    def get_challenge_posts(self, challenge_id, cursor=0, count=35):
+        """Get posts for a hashtag challenge. Returns videos with music_info."""
+        data = self._get("/challenge-posts/", {
+            "challenge_id": challenge_id,
+            "count": min(count, 35),
+            "cursor": cursor,
+        })
+        if not data:
+            return [], False, 0
+        videos = data.get("videos", [])
+        has_more = bool(data.get("hasMore", False))
+        next_cursor = data.get("cursor", 0)
+        return videos, has_more, next_cursor
+
     def get_account(self, username):
         """Returns user profile normalized to TikAPI userInfo shape."""
         data = self._get("/userinfo-by-username/", {"username": username})

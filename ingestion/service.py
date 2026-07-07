@@ -14,6 +14,8 @@ Known deferred improvements:
 
 from datetime import date, datetime, timezone
 from .providers import default_provider as provider
+from .tiklive_provider import TikLiveAPIProvider as _TikLiveProvider
+_tiklive = _TikLiveProvider()
 from .parsers import (
     parse_sounds_from_search,
     parse_sound_info,
@@ -373,18 +375,101 @@ def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_res
     return result
 
 
+def discover_sounds_from_challenge(title, artist=""):
+    """Discover sounds by searching hashtags and fetching challenge posts.
+    This finds far more sounds than video search because it crawls the full
+    hashtag graph instead of relying on search sampling."""
+    title_clean = title.strip().lower()
+    artist_clean = artist.strip().lower().split(',')[0].split('&')[0].strip() if artist else ""
+
+    # Generate hashtag variants to search
+    hashtag_queries = list(dict.fromkeys(filter(None, [
+        title_clean.replace(" ", ""),
+        f"{title_clean.replace(' ', '')}{artist_clean.replace(' ', '')}",
+        artist_clean.replace(" ", ""),
+    ])))
+
+    seen_sound_ids = set()
+    all_sounds = []
+
+    for hashtag in hashtag_queries:
+        # Step 1: Find challenge ID for this hashtag
+        challenges = _tiklive.search_challenge(hashtag)
+        if not challenges:
+            _log(f"no challenge found for #{hashtag}")
+            continue
+
+        # Take the most relevant challenge (first result)
+        challenge = challenges[0]
+        challenge_id = challenge.get("id")
+        cha_name = challenge.get("cha_name", "")
+        _log(f"challenge #{cha_name} (id={challenge_id}) — crawling posts")
+
+        # Step 2: Paginate through challenge posts
+        cursor = 0
+        pages = 0
+        new_per_page_low = 0
+
+        while pages < 10:
+            videos, has_more, next_cursor = _tiklive.get_challenge_posts(challenge_id, cursor=cursor)
+            new_this_page = 0
+
+            for v in videos:
+                music_info = v.get("music_info", {})
+                music_id = music_info.get("id") if music_info else None
+                if not music_id or music_id in seen_sound_ids:
+                    continue
+                seen_sound_ids.add(music_id)
+                new_this_page += 1
+                all_sounds.append({
+                    "item": {
+                        "music": {
+                            "id": music_id,
+                            "title": music_info.get("title", "")[:50],
+                            "authorName": music_info.get("author", ""),
+                        }
+                    }
+                })
+
+            _log(f"  #{cha_name} page {pages+1}: {len(videos)} videos, {new_this_page} new sounds")
+
+            # Adaptive stop
+            if new_this_page < 2:
+                new_per_page_low += 1
+                if new_per_page_low >= 2:
+                    break
+            else:
+                new_per_page_low = 0
+
+            if not has_more:
+                break
+            cursor = next_cursor
+            pages += 1
+
+    _log(f"discover_sounds_from_challenge: {len(all_sounds)} unique sounds from {len(hashtag_queries)} hashtags")
+    return all_sounds
+
+
 def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
     """Aggressive sound discovery using multiple search queries and pagination.
     Goal: find as many legitimate sounds as possible, store all of them.
     Monitoring will decide which ones to track frequently.
     """
     # Multiple search queries to maximize coverage
-    # Each query uncovers different sounds
     title_clean = title.strip()
-    artist_clean = artist.strip() if artist else ""
+    # Clean artist — remove featured artists, take only primary artist
+    artist_raw = artist.strip() if artist else ""
+    artist_clean = artist_raw.split(',')[0].split('&')[0].split('feat')[0].split('ft.')[0].strip()
+
+    # Generate hashtag variants
+    title_hashtag = "#" + title_clean.lower().replace(" ", "")
+    artist_hashtag = "#" + artist_clean.lower().replace(" ", "") if artist_clean else ""
+
     queries = list(dict.fromkeys(filter(None, [
         f"{title_clean} {artist_clean}".strip(),
         title_clean,
+        title_hashtag,
+        artist_hashtag,
         f"{title_clean} sped up",
         f"{title_clean} slowed",
         f"{title_clean} remix",
@@ -393,6 +478,7 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
     seen_ids = set()
     all_sounds = []
 
+    # Method 1: Video search
     for query in queries:
         sounds = discover_sounds_from_videos(query)
         for s in sounds:
@@ -401,7 +487,15 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
                 seen_ids.add(sid)
                 all_sounds.append(s)
 
-    _log(f"discover_song_sounds: {len(all_sounds)} unique sounds from {len(queries)} queries")
+    # Method 2: Challenge/hashtag crawl (finds many more sounds)
+    challenge_sounds = discover_sounds_from_challenge(title, artist)
+    for s in challenge_sounds:
+        sid = s.get("sound_id")
+        if sid and sid not in seen_ids:
+            seen_ids.add(sid)
+            all_sounds.append(s)
+
+    _log(f"discover_song_sounds: {len(all_sounds)} unique sounds from search + challenge crawl")
 
     # Score for ranking/logging but store ALL sounds — don't filter aggressively
     def score(s):
