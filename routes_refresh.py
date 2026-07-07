@@ -55,12 +55,15 @@ def _get_active_songs():
 
 
 def _get_active_sounds():
+    """Get top 25 approved sounds by priority score (recent activity weighted).
+    Only returns stale sounds not refreshed in last 3 hours."""
     with db() as conn:
         with conn.cursor() as c:
             c.execute("""
                 SELECT snd.id as sound_db_id, snd.song_id,
                        snd.sound_id as tiktok_sound_id,
-                       COALESCE(snd.posts_7d, 0) as posts_7d
+                       COALESCE(snd.posts_7d, 0) as posts_7d,
+                       COALESCE(snd.posts_24h, 0) as posts_24h
                 FROM sounds snd
                 WHERE snd.status = 'approved'
                 AND snd.song_id IN (
@@ -68,7 +71,13 @@ def _get_active_sounds():
                     JOIN campaigns c ON c.id = cs.campaign_id
                     WHERE c.status = 'In Progress'
                 )
-                ORDER BY COALESCE(snd.posts_7d, 0) DESC, snd.id
+                AND (snd.last_ingested_at IS NULL
+                     OR snd.last_ingested_at < NOW() - INTERVAL '3 hours')
+                ORDER BY
+                    (COALESCE(snd.posts_24h, 0) * 10 +
+                     COALESCE(snd.posts_7d, 0) * 3) DESC,
+                    snd.last_ingested_at ASC NULLS FIRST
+                LIMIT 25
             """)
             return [dict(r) for r in c.fetchall()]
 
