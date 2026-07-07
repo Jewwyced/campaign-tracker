@@ -297,7 +297,7 @@ def create_sound(db_conn_factory, song_id, sound):
         with conn.cursor() as c:
             c.execute("""
                 INSERT INTO sounds (song_id, sound_id, title, author, status)
-                VALUES (%s,%s,%s,%s,'approved')
+                VALUES (%s,%s,%s,%s,'pending')
                 ON CONFLICT (song_id, sound_id) DO NOTHING
                 RETURNING id
             """, (song_id, sound["sound_id"], sound["title"], sound["author"]))
@@ -417,7 +417,7 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
     for i, s in enumerate(ranked_sounds[:5]):
         _log(f"  #{i+1} '{s.get('title')}' score={score(s)} freq={s.get('frequency',0)}")
 
-    # Store ALL sounds as pending — monitor will decide which to ingest
+    # Store ALL sounds as pending — qualify endpoint will promote based on video_count
     stored = 0
     for s in ranked_sounds:
         try:
@@ -427,10 +427,7 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
         except Exception as e:
             _log(f"EXCEPTION storing sound {s.get('sound_id')} for song {song_id}: {e}")
 
-    # Promote top 20 by score to 'approved' so monitor picks them up
-    _promote_top_sounds(db_conn_factory, song_id, ranked_sounds[:20])
-
-    _log(f"discover_song_sounds: stored {stored} sounds, promoted top 20 to approved")
+    _log(f"discover_song_sounds: stored {stored} sounds as pending — run /qualify to promote")
     return ranked_sounds[:stored]
 
 
