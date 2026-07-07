@@ -191,7 +191,7 @@ def refresh_qualify():
         for s in pending:
             try:
                 raw = ingestion.get_sound_info(s["sound_id"])
-                logging.info(f"[qualify] sound {s['sound_id']} raw: {str(raw)[:100]}")
+                print(f"[qualify-debug] sound {s['sound_id']} raw={raw}", flush=True)
                 if not raw:
                     # Mark as inactive if we can't get info
                     with db() as conn:
