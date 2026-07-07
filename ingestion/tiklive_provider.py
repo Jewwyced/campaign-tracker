@@ -142,8 +142,8 @@ class TikLiveAPIProvider:
                 "keyword": query,
                 "count": 35,
                 "cursor": cursor,
-                "publish_time": 7,
-                "sort_by": 2,
+                "publish_time": 0,   # All time for discovery — gets more sounds
+                "sort_by": 2,        # Newest first
             })
 
             if not data:
