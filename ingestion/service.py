@@ -385,7 +385,6 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
     queries = list(dict.fromkeys(filter(None, [
         f"{title_clean} {artist_clean}".strip(),
         title_clean,
-        artist_clean,
         f"{title_clean} sped up",
         f"{title_clean} slowed",
         f"{title_clean} remix",

@@ -91,7 +91,7 @@ def song_detail(song_id):
                     COUNT(DISTINCT s.id) as sound_count
                 FROM posts p
                 JOIN sounds s ON s.id = p.sound_db_id
-                WHERE s.song_id = %s
+                WHERE s.song_id = %s AND s.status = 'approved'
             """, (song_id,))
             stats_row = dict(c.fetchone())
 
@@ -100,17 +100,17 @@ def song_detail(song_id):
                         p.saves, p.shares, p.thumbnail, p.created_at, p.date
                  FROM posts p
                  JOIN sounds s ON s.id = p.sound_db_id
-                 WHERE s.song_id = %s
+                 WHERE s.song_id = %s AND s.status = 'approved'
                  ORDER BY p.views DESC NULLS LAST
-                 LIMIT 15)
+                 LIMIT 20)
                 UNION
                 (SELECT p.post_id, p.username, p.views, p.likes, p.comments,
                         p.saves, p.shares, p.thumbnail, p.created_at, p.date
                  FROM posts p
                  JOIN sounds s ON s.id = p.sound_db_id
-                 WHERE s.song_id = %s
+                 WHERE s.song_id = %s AND s.status = 'approved'
                  ORDER BY p.created_at DESC NULLS LAST
-                 LIMIT 25)
+                 LIMIT 20)
             """, (song_id, song_id))
             top_posts = [dict(r) for r in c.fetchall()]
             for p in top_posts:
@@ -124,7 +124,7 @@ def song_detail(song_id):
                        COALESCE(SUM(p.likes), 0) as total_likes
                 FROM posts p
                 JOIN sounds s ON s.id = p.sound_db_id
-                WHERE s.song_id = %s
+                WHERE s.song_id = %s AND s.status = 'approved'
                 GROUP BY p.username
                 ORDER BY total_views DESC
                 LIMIT 10
@@ -135,7 +135,7 @@ def song_detail(song_id):
                 SELECT p.date, COALESCE(SUM(p.views), 0) as views
                 FROM posts p
                 JOIN sounds s ON s.id = p.sound_db_id
-                WHERE s.song_id = %s
+                WHERE s.song_id = %s AND s.status = 'approved'
                 GROUP BY p.date
                 ORDER BY p.date ASC
             """, (song_id,))
