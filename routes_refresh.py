@@ -58,15 +58,17 @@ def _get_active_sounds():
     with db() as conn:
         with conn.cursor() as c:
             c.execute("""
-                SELECT DISTINCT snd.id as sound_db_id, snd.song_id,
+                SELECT snd.id as sound_db_id, snd.song_id,
                        snd.sound_id as tiktok_sound_id,
                        COALESCE(snd.posts_7d, 0) as posts_7d
-                FROM campaign_songs cs
-                JOIN sounds snd ON snd.song_id = cs.song_id
-                JOIN campaigns c ON c.id = cs.campaign_id
+                FROM sounds snd
                 WHERE snd.status = 'approved'
-                AND c.status = 'In Progress'
-                ORDER BY snd.posts_7d DESC, snd.id
+                AND snd.song_id IN (
+                    SELECT cs.song_id FROM campaign_songs cs
+                    JOIN campaigns c ON c.id = cs.campaign_id
+                    WHERE c.status = 'In Progress'
+                )
+                ORDER BY COALESCE(snd.posts_7d, 0) DESC, snd.id
             """)
             return [dict(r) for r in c.fetchall()]
 
