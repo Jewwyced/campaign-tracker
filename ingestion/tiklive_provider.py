@@ -32,20 +32,30 @@ class TikLiveAPIProvider:
         }
 
     def _get(self, path, params):
+        """Make a GET request with one retry on timeout.
+        Returns parsed JSON or None on failure."""
         url = f"{BASE_URL}{path}"
-        try:
-            r = requests.get(url, params=params, headers=self._headers(), timeout=10)
-            _log(f"{path} -> {r.status_code}")
-            if r.status_code == 429:
-                _log("  rate limited")
+        for attempt in range(2):
+            try:
+                r = requests.get(url, params=params, headers=self._headers(), timeout=(5, 10))
+                _log(f"{path} -> {r.status_code}")
+                if r.status_code == 429:
+                    _log("  rate limited")
+                    return None
+                if r.status_code != 200:
+                    _log(f"  error: {r.text[:200]}")
+                    return None
+                return r.json()
+            except requests.Timeout:
+                if attempt == 0:
+                    _log(f"{path} timed out, retrying...")
+                    continue
+                _log(f"{path} timed out after retry")
                 return None
-            if r.status_code != 200:
-                _log(f"  error: {r.text[:200]}")
+            except Exception as e:
+                _log(f"  exception: {e}")
                 return None
-            return r.json()
-        except Exception as e:
-            _log(f"  exception: {e}")
-            return None
+        return None
 
     def get_sound_info(self, sound_id):
         """Returns raw TikAPI-compatible response for parse_sound_info."""
@@ -117,53 +127,71 @@ class TikLiveAPIProvider:
         }
 
 
-    def search_sounds(self, query):
-        """Search videos by keyword, extract unique sounds from results.
-        TikLive /search-video/ returns a music URL not a music object,
-        so we extract the ID from the URL and fetch metadata separately."""
-        data = self._get("/search-video/", {
-            "keyword": query,
-            "count": 35,
-            "publish_time": 7,
-            "sort_by": 2,
-        })
-        if not data:
-            return None
-
-        videos = data.get("videos", [])
-        _log(f"search got {len(videos)} videos")
-
+    def search_sounds(self, query, max_pages=15, min_new_per_page=3):
+        """Search videos by keyword with adaptive pagination.
+        Stops early when new sounds per page drops below min_new_per_page.
+        Retries once on timeout to handle transient TikLive failures."""
         seen_ids = set()
         items = []
-        for v in videos:
-            # Extract music ID from music URL
-            # e.g. https://sf16-ies-music-va.tiktokcdn.com/obj/.../tx27648905369661541151.mp3
-            music_url = v.get("music", "")
-            music_id = None
+        cursor = 0
+        page = 0
+        consecutive_low_yield = 0
 
-            if music_url:
-                # Try to extract numeric ID from URL path
-                m = re.search(r'/(\d{10,})', music_url)
-                if m:
-                    music_id = m.group(1)
-
-            if not music_id or music_id in seen_ids:
-                continue
-
-            seen_ids.add(music_id)
-            # We'll fetch title/author later via get_sound_info
-            # For now return with placeholder title from video title
-            items.append({
-                "item": {
-                    "music": {
-                        "id": music_id,
-                        "title": v.get("title", "")[:50],
-                        "authorName": "",
-                    }
-                }
+        while page < max_pages:
+            data = self._get("/search-video/", {
+                "keyword": query,
+                "count": 35,
+                "cursor": cursor,
+                "publish_time": 7,
+                "sort_by": 2,
             })
 
-        _log(f"search_sounds returning {len(items)} distinct sounds")
+            if not data:
+                break
+
+            videos = data.get("videos", [])
+            new_this_page = 0
+
+            for v in videos:
+                music_url = v.get("music", "")
+                music_id = None
+                if music_url:
+                    m = re.search(r"/(\d{10,})", music_url)
+                    if m:
+                        music_id = m.group(1)
+                if not music_id or music_id in seen_ids:
+                    continue
+                seen_ids.add(music_id)
+                new_this_page += 1
+                items.append({
+                    "item": {
+                        "music": {
+                            "id": music_id,
+                            "title": v.get("title", "")[:50],
+                            "authorName": "",
+                        }
+                    }
+                })
+
+            duplicates = len(videos) - new_this_page
+            _log(f"search page {page+1}: {len(videos)} videos, {new_this_page} new, {duplicates} duplicates (total {len(items)})")
+
+            # Adaptive stop — configurable minimum yield
+            if new_this_page < min_new_per_page:
+                consecutive_low_yield += 1
+                if consecutive_low_yield >= 2:
+                    _log(f"stopping early — yield below {min_new_per_page} for 2 consecutive pages")
+                    break
+            else:
+                consecutive_low_yield = 0
+
+            has_more = bool(data.get("hasMore", False))
+            if not has_more or not videos:
+                break
+            cursor = data.get("cursor", 0)
+            page += 1
+
+        _log(f"search_sounds '{query}': {len(items)} distinct sounds from {page+1} pages")
         return {"data": items}
 
 

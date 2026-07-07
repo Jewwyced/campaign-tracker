@@ -301,13 +301,13 @@ def create_sound(db_conn_factory, song_id, sound):
 
 def get_or_create_sound(db_conn_factory, song_id, sound):
     """Get existing sound or create new one. Always returns a db id.
-    Unlike create_sound, this never returns None — existing sounds are returned
-    so callers can always ingest/refresh them regardless of whether they're new."""
+    New sounds get status='pending' — monitor decides when to ingest them.
+    Existing sounds keep their current status."""
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("""
                 INSERT INTO sounds (song_id, sound_id, title, author, status)
-                VALUES (%s,%s,%s,%s,'approved')
+                VALUES (%s,%s,%s,%s,'pending')
                 ON CONFLICT (song_id, sound_id) DO UPDATE SET
                     title=EXCLUDED.title,
                     author=EXCLUDED.author
@@ -354,48 +354,80 @@ def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_res
 
 
 def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
-    """Workflow B sound discovery: search recent videos, extract music IDs,
-    score by relevance + frequency, ingest top 20 sounds.
-    Finds sounds actually being used THIS WEEK, not historically."""
-    query = f"{title} {artist}".strip()
+    """Aggressive sound discovery using multiple search queries and pagination.
+    Goal: find as many legitimate sounds as possible, store all of them.
+    Monitoring will decide which ones to track frequently.
+    """
+    # Multiple search queries to maximize coverage
+    # Each query uncovers different sounds
+    title_clean = title.strip()
+    artist_clean = artist.strip() if artist else ""
+    queries = list(dict.fromkeys(filter(None, [
+        f"{title_clean} {artist_clean}".strip(),
+        title_clean,
+        artist_clean,
+        f"{title_clean} sped up",
+        f"{title_clean} slowed",
+        f"{title_clean} remix",
+    ])))
 
-    # Workflow B: extract music IDs from recent video search
-    video_sounds = discover_sounds_from_videos(query)
-
-    # Also try traditional search as fallback
-    traditional_sounds = discover_sounds(query)
-
-    # Merge both, deduplicating by sound_id
     seen_ids = set()
     all_sounds = []
-    for s in video_sounds + traditional_sounds:
-        sid = s.get("sound_id")
-        if sid and sid not in seen_ids:
-            seen_ids.add(sid)
-            all_sounds.append(s)
 
-    # Score: relevance + frequency bonus (sounds used in many recent videos rank higher)
+    for query in queries:
+        sounds = discover_sounds_from_videos(query)
+        for s in sounds:
+            sid = s.get("sound_id")
+            if sid and sid not in seen_ids:
+                seen_ids.add(sid)
+                all_sounds.append(s)
+
+    _log(f"discover_song_sounds: {len(all_sounds)} unique sounds from {len(queries)} queries")
+
+    # Score for ranking/logging but store ALL sounds — don't filter aggressively
     def score(s):
         base = _score_sound(s, title, artist)
         freq_bonus = min(s.get("frequency", 0) * 5, 50)
         return base + freq_bonus
 
-    ranked_sounds = sorted(all_sounds, key=score, reverse=True)[:20]
+    # Sort by score but keep all of them
+    ranked_sounds = sorted(all_sounds, key=score, reverse=True)
 
-    _log(f"discover_song_sounds: {len(all_sounds)} unique -> top {len(ranked_sounds)} selected")
+    _log(f"discover_song_sounds: storing all {len(ranked_sounds)} sounds")
     for i, s in enumerate(ranked_sounds[:5]):
-        _log(f"  #{i+1} '{s.get('title')}' by '{s.get('author')}' score={score(s)} freq={s.get('frequency',0)}")
+        _log(f"  #{i+1} '{s.get('title')}' score={score(s)} freq={s.get('frequency',0)}")
 
-    results = []
+    # Store ALL sounds as pending — monitor will decide which to ingest
+    stored = 0
     for s in ranked_sounds:
         try:
             sound_db_id = get_or_create_sound(db_conn_factory, song_id, s)
             if sound_db_id:
-                ingest_result = ingest_sound(db_conn_factory, song_id, sound_db_id, s["sound_id"], max_results=30)
-                results.append({**s, **ingest_result})
+                stored += 1
         except Exception as e:
-            _log(f"EXCEPTION ingesting sound {s.get('sound_id')} for song {song_id}: {e}")
-    return results
+            _log(f"EXCEPTION storing sound {s.get('sound_id')} for song {song_id}: {e}")
+
+    # Promote top 20 by score to 'approved' so monitor picks them up
+    _promote_top_sounds(db_conn_factory, song_id, ranked_sounds[:20])
+
+    _log(f"discover_song_sounds: stored {stored} sounds, promoted top 20 to approved")
+    return ranked_sounds[:stored]
+
+
+def _promote_top_sounds(db_conn_factory, song_id, sounds):
+    """Promote top-scored sounds to approved status so monitor ingests them."""
+    if not sounds:
+        return
+    sound_ids = [s["sound_id"] for s in sounds if s.get("sound_id")]
+    if not sound_ids:
+        return
+    with db_conn_factory() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                UPDATE sounds SET status='approved'
+                WHERE song_id=%s AND sound_id = ANY(%s)
+            """, (song_id, sound_ids))
+        conn.commit()
 
 
 def refresh_song_sounds(db_conn_factory, song_id):
