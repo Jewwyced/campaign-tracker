@@ -191,12 +191,25 @@ def refresh_qualify():
         for s in pending:
             try:
                 raw = ingestion.get_sound_info(s["sound_id"])
+                logging.info(f"[qualify] sound {s['sound_id']} raw: {str(raw)[:100]}")
                 if not raw:
+                    # Mark as inactive if we can't get info
+                    with db() as conn:
+                        with conn.cursor() as c:
+                            c.execute("UPDATE sounds SET status='inactive' WHERE id=%s", (s["id"],))
+                        conn.commit()
+                    inactive += 1
                     continue
 
-                video_count = raw.get("video_count") or 0
-                title = raw.get("title") or ""
-                author = raw.get("author") or ""
+                # Handle both TikLive flat format and TikAPI nested format
+                video_count = (
+                    raw.get("video_count") or
+                    raw.get("videoCount") or
+                    raw.get("stats", {}).get("videoCount") or
+                    0
+                )
+                title = raw.get("title") or raw.get("music", {}).get("title") or ""
+                author = raw.get("author") or raw.get("authorName") or raw.get("music", {}).get("authorName") or ""
 
                 if video_count > 0:
                     new_status = "approved"
