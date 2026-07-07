@@ -399,10 +399,12 @@ def discover_sounds_from_challenge(title, artist=""):
             _log(f"no challenge found for #{hashtag}")
             continue
 
-        # Take the most relevant challenge (first result)
-        challenge = challenges[0]
+        # Pick challenge with most users (most relevant)
+        challenge = max(challenges, key=lambda c: c.get("user_count", 0))
         challenge_id = challenge.get("id")
         cha_name = challenge.get("cha_name", "")
+        user_count = challenge.get("user_count", 0)
+        _log(f"best match: #{cha_name} (id={challenge_id}, users={user_count})")
         _log(f"challenge #{cha_name} (id={challenge_id}) — crawling posts")
 
         # Step 2: Paginate through challenge posts
@@ -433,15 +435,7 @@ def discover_sounds_from_challenge(title, artist=""):
 
             _log(f"  #{cha_name} page {pages+1}: {len(videos)} videos, {new_this_page} new sounds")
 
-            # Adaptive stop
-            if new_this_page < 2:
-                new_per_page_low += 1
-                if new_per_page_low >= 2:
-                    break
-            else:
-                new_per_page_low = 0
-
-            if not has_more:
+            if not has_more or not videos:
                 break
             cursor = next_cursor
             pages += 1
