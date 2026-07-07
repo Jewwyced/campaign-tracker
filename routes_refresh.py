@@ -203,14 +203,11 @@ def refresh_qualify():
                         conn.commit()
                     continue
 
-                # TikLive returns flat format: {"video_count": N, "title": "...", "author": "..."}
-                # tiklive_provider.get_sound_info wraps it in TikAPI format
-                # so we need to unwrap or check both
+                # TikLive returns flat format wrapped in TikAPI shape
                 video_count = 0
                 title = ""
                 author = ""
 
-                # Try TikAPI wrapped format first
                 music_info = raw.get("musicInfo", {})
                 if music_info:
                     music = music_info.get("music", {})
@@ -219,19 +216,45 @@ def refresh_qualify():
                     title = music.get("title") or ""
                     author = music.get("authorName") or ""
                 else:
-                    # Flat TikLive format
                     video_count = raw.get("video_count") or 0
                     title = raw.get("title") or ""
                     author = raw.get("author") or ""
 
-                print(f"[qualify] video_count={video_count} title={title[:30]}", flush=True)
-
-                if video_count > 0:
-                    new_status = "approved"
-                    approved += 1
-                else:
+                if video_count == 0:
                     new_status = "inactive"
                     inactive += 1
+                else:
+                    # Relevance check — sound must relate to the song
+                    # Get song name and artist for this sound
+                    with db() as conn:
+                        with conn.cursor() as c:
+                            c.execute("SELECT name, artist FROM songs WHERE id=%s", (s["song_id"],))
+                            song_row = c.fetchone()
+
+                    song_name = (song_row["name"] if song_row else "").lower()
+                    song_artist = (song_row["artist"] if song_row else "").lower()
+                    title_lower = title.lower()
+                    author_lower = author.lower()
+
+                    # Extract key words from song name (skip short words)
+                    song_words = [w for w in song_name.split() if len(w) > 3]
+
+                    is_relevant = (
+                        any(w in title_lower for w in song_words) or
+                        any(w in author_lower for w in song_words) or
+                        (song_artist and song_artist in author_lower) or
+                        title_lower == "" or  # no title = original sound, allow
+                        "original sound" in title_lower or
+                        "original" in title_lower
+                    )
+
+                    if is_relevant:
+                        new_status = "approved"
+                        approved += 1
+                    else:
+                        new_status = "inactive"
+                        inactive += 1
+                        print(f"[qualify] rejected '{title}' by '{author}' — not relevant to '{song_name}'", flush=True)
 
                 with db() as conn:
                     with conn.cursor() as c:
