@@ -68,10 +68,18 @@ def parse_sounds_from_search(raw_search_response):
 
 
 def parse_sound_info(raw_music_info_response):
-    """Given raw JSON from a music/info endpoint, return normalized sound metadata.
-    Returns None if the response is missing or malformed."""
     if not raw_music_info_response:
         return None
+    
+    # TikLive flat format
+    if "video_count" in raw_music_info_response or "id" in raw_music_info_response:
+        return {
+            "title": raw_music_info_response.get("title"),
+            "author": raw_music_info_response.get("author"),
+            "video_count": raw_music_info_response.get("video_count"),
+        }
+    
+    # TikAPI nested format
     music_info = raw_music_info_response.get("musicInfo", raw_music_info_response)
     music = music_info.get("music", {})
     stats = music_info.get("stats", {})
