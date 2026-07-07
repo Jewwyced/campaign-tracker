@@ -153,12 +153,11 @@ class TikLiveAPIProvider:
             new_this_page = 0
 
             for v in videos:
-                music_url = v.get("music", "")
-                music_id = None
-                if music_url:
-                    m = re.search(r"/(\d{10,})", music_url)
-                    if m:
-                        music_id = m.group(1)
+                # Use music_info.id — the real music ID
+                # NOT the music URL which contains the audio file ID (different!)
+                music_info = v.get("music_info", {})
+                music_id = music_info.get("id") if music_info else None
+
                 if not music_id or music_id in seen_ids:
                     continue
                 seen_ids.add(music_id)
@@ -167,8 +166,8 @@ class TikLiveAPIProvider:
                     "item": {
                         "music": {
                             "id": music_id,
-                            "title": v.get("title", "")[:50],
-                            "authorName": "",
+                            "title": music_info.get("title", "")[:50],
+                            "authorName": music_info.get("author", ""),
                         }
                     }
                 })
