@@ -152,6 +152,88 @@ def refresh_monitor():
         _release_lock()
 
 
+@refresh_bp.route("/api/refresh/qualify", methods=["POST"])
+def refresh_qualify():
+    """Qualification scan — fetches music-info for pending sounds and promotes based on video_count.
+    Run after discovery to decide which sounds deserve monitoring.
+    
+    Promotion tiers:
+    - video_count > 1000  → approved (hot)
+    - video_count > 100   → approved (warm)  
+    - video_count > 0     → approved (cold, monitor less frequently)
+    - video_count == 0    → inactive (dead)
+    """
+    if not _acquire_lock('qualify'):
+        return jsonify({"ok": False, "reason": "ingestion already running"}), 429
+
+    try:
+        # Get pending sounds that haven't been qualified yet
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute("""
+                    SELECT snd.id, snd.sound_id, snd.song_id
+                    FROM sounds snd
+                    WHERE snd.status = 'pending'
+                    AND snd.song_id IN (
+                        SELECT cs.song_id FROM campaign_songs cs
+                        JOIN campaigns c ON c.id = cs.campaign_id
+                        WHERE c.status = 'In Progress'
+                    )
+                    ORDER BY snd.id
+                    LIMIT 50
+                """)
+                pending = [dict(r) for r in c.fetchall()]
+
+        logging.info(f"[qualify] checking {len(pending)} pending sounds")
+
+        approved = 0
+        inactive = 0
+        for s in pending:
+            try:
+                raw = ingestion.get_sound_info(s["sound_id"])
+                if not raw:
+                    continue
+
+                video_count = raw.get("video_count") or 0
+                title = raw.get("title") or ""
+                author = raw.get("author") or ""
+
+                if video_count > 0:
+                    new_status = "approved"
+                    approved += 1
+                else:
+                    new_status = "inactive"
+                    inactive += 1
+
+                with db() as conn:
+                    with conn.cursor() as c:
+                        c.execute("""
+                            UPDATE sounds 
+                            SET status=%s, current_video_count=%s,
+                                title=COALESCE(NULLIF(%s,''), title),
+                                author=COALESCE(NULLIF(%s,''), author)
+                            WHERE id=%s
+                        """, (new_status, video_count, title, author, s["id"]))
+                    conn.commit()
+
+            except Exception as e:
+                logging.warning(f"[qualify] failed for sound {s['id']}: {e}")
+
+        logging.info(f"[qualify] {len(pending)} checked: {approved} approved, {inactive} inactive")
+        return jsonify({
+            "ok": True,
+            "checked": len(pending),
+            "approved": approved,
+            "inactive": inactive,
+        })
+
+    except Exception as e:
+        logging.exception("Qualify scan failed:")
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        _release_lock()
+
+
 @refresh_bp.route("/api/refresh", methods=["POST"])
 def refresh():
     """Legacy endpoint — runs monitor scan only."""

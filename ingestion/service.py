@@ -237,6 +237,13 @@ def _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_resul
 
 # ── Public service functions ──────────────────────────────────────────────────
 
+def get_sound_info(tiktok_sound_id):
+    """Fetch metadata for a single sound. Returns normalized dict or None."""
+    raw = provider.get_sound_info(tiktok_sound_id)
+    info = parse_sound_info(raw)
+    return info
+
+
 def discover_sounds(query):
     """Search TikTok for sounds matching a query. No database writes.
     Uses TikLive search-video with publish_time=7 to find sounds from this week."""
