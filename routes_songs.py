@@ -32,11 +32,83 @@ def songs_collection():
                 song_id = c.fetchone()["id"]
             conn.commit()
 
+        # Step 1: Discover sounds
         results = ingestion.ingest_song_sounds(db, song_id, name, artist)
+        sounds_found = len(results) if results else 0
+
+        # Step 2: Auto-qualify — promote pending sounds based on video_count
+        from ingestion.providers import default_provider as _provider
+        from ingestion.parsers import parse_sound_info
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute("""
+                    SELECT id, sound_id FROM sounds
+                    WHERE song_id=%s AND status='pending'
+                """, (song_id,))
+                pending = [dict(r) for r in c.fetchall()]
+
+        approved = 0
+        for s in pending:
+            try:
+                raw = _provider.get_sound_info(s["sound_id"])
+                if not raw:
+                    continue
+                music_info = raw.get("musicInfo", {})
+                stats = music_info.get("stats", {}) if music_info else {}
+                video_count = stats.get("videoCount") or 0
+                music = music_info.get("music", {}) if music_info else {}
+                title = music.get("title") or ""
+                author = music.get("authorName") or ""
+
+                # Simple relevance: song name words in title/author
+                song_words = [w for w in name.lower().split() if len(w) > 3]
+                is_relevant = (
+                    video_count > 0 and (
+                        any(w in title.lower() for w in song_words) or
+                        any(w in author.lower() for w in song_words) or
+                        "original" in title.lower()
+                    )
+                )
+
+                new_status = "approved" if is_relevant else "inactive"
+                with db() as conn:
+                    with conn.cursor() as c:
+                        c.execute("""
+                            UPDATE sounds SET status=%s, current_video_count=%s,
+                                title=COALESCE(NULLIF(%s,''), title),
+                                author=COALESCE(NULLIF(%s,''), author)
+                            WHERE id=%s
+                        """, (new_status, video_count, title, author, s["id"]))
+                    conn.commit()
+                if new_status == "approved":
+                    approved += 1
+            except Exception:
+                pass
+
+        # Step 3: Ingest posts for approved sounds
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute("""
+                    SELECT id, sound_id FROM sounds
+                    WHERE song_id=%s AND status='approved'
+                    LIMIT 20
+                """, (song_id,))
+                approved_sounds = [dict(r) for r in c.fetchall()]
+
+        posts_added = 0
+        for s in approved_sounds:
+            try:
+                result = ingestion.ingest_sound(db, song_id, s["id"], s["sound_id"], max_results=30)
+                posts_added += result.get("posts_added", 0)
+            except Exception:
+                pass
+
         return jsonify({
             "ok": True,
             "song_id": song_id,
-            "sounds_found": len(results) if results else 0
+            "sounds_found": sounds_found,
+            "sounds_approved": approved,
+            "posts_added": posts_added,
         })
 
     with db() as conn:
