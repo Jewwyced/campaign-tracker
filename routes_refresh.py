@@ -9,6 +9,8 @@ routes_refresh.py — two separate refresh endpoints with different schedules.
 import logging
 from flask import Blueprint, jsonify
 from ingestion import api as ingestion
+from ingestion.providers import default_provider as _provider
+from ingestion.parsers import parse_sound_info
 from db import db
 
 refresh_bp = Blueprint("refresh", __name__)
@@ -190,26 +192,39 @@ def refresh_qualify():
         inactive = 0
         for s in pending:
             try:
-                raw = ingestion.get_sound_info(s["sound_id"])
-                print(f"[qualify-debug] sound {s['sound_id']} raw={raw}", flush=True)
+                # Call TikLive directly for flat response with video_count
+                raw = _provider.get_sound_info(s["sound_id"])
+                print(f"[qualify] sound {s['sound_id']} raw={str(raw)[:80]}", flush=True)
                 if not raw:
-                    # Mark as inactive if we can't get info
+                    inactive += 1
                     with db() as conn:
                         with conn.cursor() as c:
                             c.execute("UPDATE sounds SET status='inactive' WHERE id=%s", (s["id"],))
                         conn.commit()
-                    inactive += 1
                     continue
 
-                # Handle both TikLive flat format and TikAPI nested format
-                video_count = (
-                    raw.get("video_count") or
-                    raw.get("videoCount") or
-                    raw.get("stats", {}).get("videoCount") or
-                    0
-                )
-                title = raw.get("title") or raw.get("music", {}).get("title") or ""
-                author = raw.get("author") or raw.get("authorName") or raw.get("music", {}).get("authorName") or ""
+                # TikLive returns flat format: {"video_count": N, "title": "...", "author": "..."}
+                # tiklive_provider.get_sound_info wraps it in TikAPI format
+                # so we need to unwrap or check both
+                video_count = 0
+                title = ""
+                author = ""
+
+                # Try TikAPI wrapped format first
+                music_info = raw.get("musicInfo", {})
+                if music_info:
+                    music = music_info.get("music", {})
+                    stats = music_info.get("stats", {})
+                    video_count = stats.get("videoCount") or 0
+                    title = music.get("title") or ""
+                    author = music.get("authorName") or ""
+                else:
+                    # Flat TikLive format
+                    video_count = raw.get("video_count") or 0
+                    title = raw.get("title") or ""
+                    author = raw.get("author") or ""
+
+                print(f"[qualify] video_count={video_count} title={title[:30]}", flush=True)
 
                 if video_count > 0:
                     new_status = "approved"
