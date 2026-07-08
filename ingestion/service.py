@@ -107,7 +107,9 @@ def _update_sound_velocity(db_conn_factory, sound_db_id):
 
 def _score_sound(sound, title, artist):
     """Score a sound candidate by relevance to the song title and artist.
-    Higher score = better match. Used to rank sounds before taking the top 5.
+    Higher score = better match. Used to rank sounds before taking the top 5,
+    and also used at qualify-time to gate approval (see RELEVANCE_THRESHOLD
+    in qualify_pending_sounds_for_song).
 
     NOTE: video_count is NOT scored here because search APIs don't return it.
     It is fetched later via _update_sound_video_count() after sounds are selected.
@@ -708,9 +710,20 @@ def ingest_campaign_attached_sound(db_conn_factory, campaign_id, tiktok_sound_id
 
 def qualify_pending_sounds_for_song(db_conn_factory, song_id):
     """Check every pending sound for one song and promote to approved/inactive
-    based on video_count + relevance. This is the SAME logic as /api/refresh/qualify,
-    extracted here so both the cron route and the instant per-song pipeline
-    share one implementation instead of drifting apart."""
+    based on video_count + a relevance SCORE (via _score_sound), not just
+    loose keyword substring checks. This is the SAME logic as
+    /api/refresh/qualify, extracted here so both the cron route and the
+    instant per-song pipeline share one implementation instead of drifting
+    apart.
+
+    IMPORTANT: previously this used a substring-based `is_relevant` check
+    that included `title_lower == ""` and `"original" in title_lower` as
+    automatic passes. Since almost every generic TikTok clip is titled
+    "original sound - username", that second condition alone approved
+    huge numbers of completely unrelated sounds regardless of actual
+    match to the song. Both catch-alls have been removed in favor of a
+    real relevance score with a minimum threshold.
+    """
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("""
@@ -723,9 +736,16 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id):
             c.execute("SELECT name, artist FROM songs WHERE id=%s", (song_id,))
             song_row = c.fetchone()
 
-    song_name = (song_row["name"] if song_row else "").lower()
-    song_artist = (song_row["artist"] if song_row else "").lower()
-    song_words = [w for w in song_name.split() if len(w) > 3]
+    song_name = song_row["name"] if song_row else ""
+    song_artist = song_row["artist"] if song_row else ""
+
+    # Minimum score required to approve. _score_sound gives:
+    #   150 exact title match, 100 title contained, 40 multi-word match
+    #   100 exact artist match, 75 artist words subset, 30 partial artist
+    #   50 original-sound bonus, -30 per derivative-version penalty
+    # A threshold of 100 means a sound needs a real title OR artist signal —
+    # the "original sound" bonus (50) alone is no longer sufficient by itself.
+    RELEVANCE_THRESHOLD = 100
 
     approved = 0
     inactive = 0
@@ -748,20 +768,16 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id):
                     title = raw.get("title") or ""
                     author = raw.get("author") or ""
 
-                title_lower = title.lower()
-                author_lower = author.lower()
-
                 if video_count == 0:
                     new_status = "inactive"
                 else:
-                    is_relevant = (
-                        any(w in title_lower for w in song_words) or
-                        any(w in author_lower for w in song_words) or
-                        (song_artist and song_artist in author_lower) or
-                        title_lower == "" or
-                        "original" in title_lower
+                    is_original = "original sound" in title.lower()
+                    score = _score_sound(
+                        {"title": title, "author": author, "is_original": is_original},
+                        song_name, song_artist
                     )
-                    new_status = "approved" if is_relevant else "inactive"
+                    new_status = "approved" if score >= RELEVANCE_THRESHOLD else "inactive"
+                    _log(f"  sound {s['id']} '{title}' by '{author}' score={score} -> {new_status}")
 
             with db_conn_factory() as conn:
                 with conn.cursor() as c:
