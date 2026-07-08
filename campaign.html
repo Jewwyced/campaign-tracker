@@ -496,12 +496,26 @@ async function addSong() {
       });
       input.value = '';
       if (artistInput) artistInput.value = '';
-      statusEl.textContent = 'Added "' + name + '" — syncing now...';
-      // Auto-sync after adding
-      await fetch('/api/refresh/discover', { method: 'POST' });
-      await fetch('/api/refresh/monitor', { method: 'POST' });
-      statusEl.textContent = 'Added "' + name + '" — sync complete!';
+
+      // vvv THIS IS THE NEW PART vvv
+      statusEl.textContent = 'Added "' + name + '" — finding sounds and posts...';
+      try {
+        const refreshRes = await fetch('/api/songs/' + data.song_id + '/quick_refresh', {
+          method: 'POST'
+        });
+        const refreshData = await refreshRes.json();
+        if (!refreshRes.ok || !refreshData.ok) {
+          statusEl.textContent = 'Song added, but sync hit a snag (' +
+            (refreshData.error || refreshData.reason || 'unknown error') +
+            '). Try Sync again in a moment.';
+        } else {
+          statusEl.textContent = 'Added "' + name + '" — sync complete!';
+        }
+      } catch (e) {
+        statusEl.textContent = 'Song added, but sync failed to reach the server — try Sync again.';
+      }
       await load();
+      // ^^^ END NEW PART ^^^
     }
   } catch(e) {
     errEl.textContent = 'Could not reach the server.';
@@ -509,6 +523,29 @@ async function addSong() {
   }
   btn.disabled = false;
   btn.textContent = 'Add song';
+}
+
+async function syncNow() {
+  const btn = document.getElementById('sync-btn');
+  const statusEl = document.getElementById('add-song-status');
+  btn.disabled = true;
+  btn.textContent = '↻ Syncing...';
+  statusEl.textContent = 'Refreshing posts for this campaign\'s songs...';
+  try {
+    for (const s of songsData) {
+      const r = await fetch('/api/songs/' + s.id + '/ingest_only', { method: 'POST' });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        console.warn('ingest_only failed for song', s.id, d);
+      }
+    }
+    statusEl.textContent = 'Sync complete.';
+    await load();
+  } catch (e) {
+    statusEl.textContent = 'Sync failed — try again.';
+  }
+  btn.disabled = false;
+  btn.textContent = '↻ Sync';
 }
 
 async function deleteSong(songId, songName) {
