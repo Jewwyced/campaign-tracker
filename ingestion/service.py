@@ -33,6 +33,11 @@ SOURCE_CACHE    = "cache"
 SOURCE_TIKAPI   = "tikapi"
 SOURCE_FALLBACK = "fallback"
 
+DISCOVERY_PROFILES = {
+    "interactive": {"queries": 4, "challenge": False, "max_pages": 2},
+    "scheduled":   {"queries": 7, "challenge": True,  "max_pages": 6},
+}
+
 
 def _log(msg):
     print(f"  [ingestion] {msg}", flush=True)
@@ -257,13 +262,11 @@ def discover_sounds(query):
     return sounds
 
 
-def discover_sounds_from_videos(query, publish_time=7):
+def discover_sounds_from_videos(query, publish_time=7, max_pages=15):
     """Workflow B: discover sounds by searching recent videos and extracting music IDs.
     This finds NEW sounds being used this week, not historically relevant sounds.
     Returns list of dicts with sound_id, title, author, frequency (how many videos used it)."""
-    raw = provider.search_sounds(query)
-    if not raw:
-        return []
+    raw = provider.search_sounds(query, max_pages=max_pages)
 
     # parse_sounds_from_search returns deduplicated sounds
     # but we want frequency counts — re-parse manually
@@ -311,9 +314,11 @@ def create_sound(db_conn_factory, song_id, sound):
 
 
 def get_or_create_sound(db_conn_factory, song_id, sound):
-    """Get existing sound or create new one. Always returns a db id.
+    """Get existing sound or create new one. Always returns (id, status).
     New sounds get status='pending' — monitor decides when to ingest them.
-    Existing sounds keep their current status."""
+    Existing sounds keep their current status — the ON CONFLICT branch never
+    touches status, only title/author, so the returned status tells you
+    whether this sound is new-and-unqualified or already handled."""
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("""
@@ -322,12 +327,11 @@ def get_or_create_sound(db_conn_factory, song_id, sound):
                 ON CONFLICT (song_id, sound_id) DO UPDATE SET
                     title=EXCLUDED.title,
                     author=EXCLUDED.author
-                RETURNING id
+                RETURNING id, status
             """, (song_id, sound["sound_id"], sound["title"], sound["author"]))
             row = c.fetchone()
         conn.commit()
-    return row["id"] if row else None
-
+    return (row["id"], row["status"]) if row else (None, None)
 
 def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_results=30):
     """Refresh one Sound's posts and video-count snapshot.
@@ -446,79 +450,87 @@ def discover_sounds_from_challenge(title, artist=""):
     return all_sounds
 
 
-def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
+def discover_song_sounds(db_conn_factory, song_id, title, artist="", mode="scheduled"):
     """Aggressive sound discovery using multiple search queries and pagination.
     Goal: find as many legitimate sounds as possible, store all of them.
     Monitoring will decide which ones to track frequently.
+
+    mode='scheduled' (default): full 7-query + challenge crawl, used by cron.
+    mode='interactive': capped 4-query, no challenge crawl, used by quick_refresh.
+
+    Returns (sounds, newly_pending):
+      sounds: the ranked sound candidates that were stored this run
+      newly_pending: [{"db_id":..., "sound_id":...}] — only the ones that
+        were actually NEW this run (status='pending' after upsert), not
+        sounds that already existed as approved/inactive from a prior run.
     """
-    # Multiple search queries to maximize coverage
+    profile = DISCOVERY_PROFILES[mode]
+
     title_clean = title.strip()
-    # Clean artist — remove featured artists, take only primary artist
     artist_raw = artist.strip() if artist else ""
     artist_clean = artist_raw.split(',')[0].split('&')[0].split('feat')[0].split('ft.')[0].strip()
 
-    # Generate hashtag variants
     title_hashtag = "#" + title_clean.lower().replace(" ", "")
     artist_hashtag = "#" + artist_clean.lower().replace(" ", "") if artist_clean else ""
 
-    queries = list(dict.fromkeys(filter(None, [
+    all_queries = list(dict.fromkeys(filter(None, [
         f"{title_clean} {artist_clean}".strip(),
         title_clean,
-        title_hashtag,
-        artist_hashtag,
         f"{title_clean} sped up",
         f"{title_clean} slowed",
+        title_hashtag,
+        artist_hashtag,
         f"{title_clean} remix",
     ])))
+    queries = all_queries[:profile["queries"]]
 
     seen_ids = set()
     all_sounds = []
 
-    # Method 1: Video search
     for query in queries:
-        sounds = discover_sounds_from_videos(query)
+        sounds = discover_sounds_from_videos(query, max_pages=profile["max_pages"])
         for s in sounds:
             sid = s.get("sound_id")
             if sid and sid not in seen_ids:
                 seen_ids.add(sid)
                 all_sounds.append(s)
 
-    # Method 2: Challenge/hashtag crawl (finds many more sounds)
-    challenge_sounds = discover_sounds_from_challenge(title, artist)
-    for s in challenge_sounds:
-        sid = s.get("sound_id")
-        if sid and sid not in seen_ids:
-            seen_ids.add(sid)
-            all_sounds.append(s)
+    if profile["challenge"]:
+        challenge_sounds = discover_sounds_from_challenge(title, artist)
+        for s in challenge_sounds:
+            sid = s.get("sound_id")
+            if sid and sid not in seen_ids:
+                seen_ids.add(sid)
+                all_sounds.append(s)
 
-    _log(f"discover_song_sounds: {len(all_sounds)} unique sounds from search + challenge crawl")
+    _log(f"discover_song_sounds[{mode}]: {len(all_sounds)} unique sounds from "
+         f"{len(queries)} queries{' + challenge crawl' if profile['challenge'] else ''}")
 
-    # Score for ranking/logging but store ALL sounds — don't filter aggressively
     def score(s):
         base = _score_sound(s, title, artist)
         freq_bonus = min(s.get("frequency", 0) * 5, 50)
         return base + freq_bonus
 
-    # Sort by score but keep all of them
     ranked_sounds = sorted(all_sounds, key=score, reverse=True)
 
     _log(f"discover_song_sounds: storing all {len(ranked_sounds)} sounds")
     for i, s in enumerate(ranked_sounds[:5]):
         _log(f"  #{i+1} '{s.get('title')}' score={score(s)} freq={s.get('frequency',0)}")
 
-    # Store ALL sounds as pending — qualify endpoint will promote based on video_count
     stored = 0
+    newly_pending = []
     for s in ranked_sounds:
         try:
-            sound_db_id = get_or_create_sound(db_conn_factory, song_id, s)
+            sound_db_id, status = get_or_create_sound(db_conn_factory, song_id, s)
             if sound_db_id:
                 stored += 1
+                if status == 'pending':
+                    newly_pending.append({"db_id": sound_db_id, "sound_id": s["sound_id"]})
         except Exception as e:
             _log(f"EXCEPTION storing sound {s.get('sound_id')} for song {song_id}: {e}")
 
     _log(f"discover_song_sounds: stored {stored} sounds as pending — run /qualify to promote")
-    return ranked_sounds[:stored]
-
+    return ranked_sounds[:stored], newly_pending
 
 def _promote_top_sounds(db_conn_factory, song_id, sounds):
     """Promote top-scored sounds to approved status so monitor ingests them."""
@@ -708,13 +720,13 @@ def ingest_campaign_attached_sound(db_conn_factory, campaign_id, tiktok_sound_id
     return added
 # ── New: consolidated per-song pipeline (discover -> qualify -> ingest posts) ──
 
-def qualify_pending_sounds_for_song(db_conn_factory, song_id):
-    """Check every pending sound for one song and promote to approved/inactive
-    based on video_count + a relevance SCORE (via _score_sound), not just
-    loose keyword substring checks. This is the SAME logic as
-    /api/refresh/qualify, extracted here so both the cron route and the
-    instant per-song pipeline share one implementation instead of drifting
-    apart.
+def qualify_sounds(db_conn_factory, song_id, sounds):
+    """Qualify a specific list of sounds passed in directly — no DB read to
+    find them first. sounds: [{"db_id": ..., "sound_id": ...}, ...]
+
+    Same scoring logic as before (via _score_sound), factored out here so
+    both the cron-driven backlog sweep and the interactive per-song
+    pipeline share one implementation instead of drifting apart.
 
     IMPORTANT: previously this used a substring-based `is_relevant` check
     that included `title_lower == ""` and `"original" in title_lower` as
@@ -726,13 +738,6 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id):
     """
     with db_conn_factory() as conn:
         with conn.cursor() as c:
-            c.execute("""
-                SELECT snd.id, snd.sound_id
-                FROM sounds snd
-                WHERE snd.song_id = %s AND snd.status = 'pending'
-            """, (song_id,))
-            pending = [dict(r) for r in c.fetchall()]
-
             c.execute("SELECT name, artist FROM songs WHERE id=%s", (song_id,))
             song_row = c.fetchone()
 
@@ -743,14 +748,12 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id):
     #   150 exact title match, 100 title contained, 40 multi-word match
     #   100 exact artist match, 75 artist words subset, 30 partial artist
     #   50 original-sound bonus, -30 per derivative-version penalty
-    # A threshold of 100 means a sound needs a real title OR artist signal —
-    # the "original sound" bonus (50) alone is no longer sufficient by itself.
     RELEVANCE_THRESHOLD = 100
 
     approved = 0
     inactive = 0
 
-    for s in pending:
+    for s in sounds:
         try:
             raw = provider.get_sound_info(s["sound_id"])
             if not raw:
@@ -777,7 +780,7 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id):
                         song_name, song_artist
                     )
                     new_status = "approved" if score >= RELEVANCE_THRESHOLD else "inactive"
-                    _log(f"  sound {s['id']} '{title}' by '{author}' score={score} -> {new_status}")
+                    _log(f"  sound {s['db_id']} '{title}' by '{author}' score={score} -> {new_status}")
 
             with db_conn_factory() as conn:
                 with conn.cursor() as c:
@@ -787,7 +790,7 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id):
                             title=COALESCE(NULLIF(%s,''), title),
                             author=COALESCE(NULLIF(%s,''), author)
                         WHERE id=%s
-                    """, (new_status, video_count, title, author, s["id"]))
+                    """, (new_status, video_count, title, author, s["db_id"]))
                 conn.commit()
 
             if new_status == "approved":
@@ -795,10 +798,25 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id):
             else:
                 inactive += 1
         except Exception as e:
-            _log(f"qualify_pending_sounds_for_song: failed on sound {s['id']}: {e}")
+            _log(f"qualify_sounds: failed on sound {s['db_id']}: {e}")
 
-    _log(f"qualify_pending_sounds_for_song: song {song_id} — {approved} approved, {inactive} inactive")
-    return {"approved": approved, "inactive": inactive, "checked": len(pending)}
+    _log(f"qualify_sounds: song {song_id} — {approved} approved, {inactive} inactive")
+    return {"approved": approved, "inactive": inactive, "checked": len(sounds)}
+
+
+def qualify_pending_sounds_for_song(db_conn_factory, song_id):
+    """Check every pending sound for one song (the full historical backlog)
+    and promote to approved/inactive. Used by the cron /api/refresh/qualify.
+    Delegates the actual scoring/write logic to qualify_sounds()."""
+    with db_conn_factory() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                SELECT snd.id, snd.sound_id
+                FROM sounds snd
+                WHERE snd.song_id = %s AND snd.status = 'pending'
+            """, (song_id,))
+            pending = [{"db_id": r["id"], "sound_id": r["sound_id"]} for r in c.fetchall()]
+    return qualify_sounds(db_conn_factory, song_id, pending)
 
 
 def ingest_approved_sounds_for_song(db_conn_factory, song_id, max_results=30):
@@ -828,16 +846,18 @@ def ingest_approved_sounds_for_song(db_conn_factory, song_id, max_results=30):
 
 
 def run_full_pipeline_for_song(db_conn_factory, song_id, name, artist=""):
-    print(f"[DEBUG] quick_refresh discovering song_id={song_id} name={name!r} artist={artist!r}", flush=True)
     """The one call the frontend should make right after adding a song:
     discover -> qualify -> ingest posts, all synchronously, all scoped to
-    this one song. This is what makes 'add song, it just appears' true."""
-    discovered = discover_song_sounds(db_conn_factory, song_id, name, artist or "")
-    qualify_result = qualify_pending_sounds_for_song(db_conn_factory, song_id)
+    this one song. Uses the interactive discovery profile (capped queries
+    and pages) and only qualifies sounds newly found this run — the
+    historical pending backlog is left for the cron to clear."""
+    print(f"[DEBUG] quick_refresh discovering song_id={song_id} name={name!r} artist={artist!r}", flush=True)
+    sounds, newly_pending = discover_song_sounds(db_conn_factory, song_id, name, artist or "", mode="interactive")
+    qualify_result = qualify_sounds(db_conn_factory, song_id, newly_pending)
     ingest_result = ingest_approved_sounds_for_song(db_conn_factory, song_id)
 
     return {
-        "sounds_discovered": len(discovered),
+        "sounds_discovered": len(sounds),
         "qualify": qualify_result,
         "ingest": ingest_result,
     }

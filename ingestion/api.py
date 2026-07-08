@@ -66,8 +66,12 @@ def ingest_song_sound(db, song_id, sound_db_id, tiktok_sound_id, max_results=30)
     return ingest_sound(db, song_id, sound_db_id, tiktok_sound_id, max_results)
 
 def ingest_song_sounds(db, song_id, title, artist=""):
-    """Discover all TikTok sounds for a Song and ingest each one."""
-    return discover_song_sounds(db, song_id, title, artist)
+    """Discover all TikTok sounds for a Song and ingest each one.
+    discover_song_sounds now returns (sounds, newly_pending) — this wrapper
+    unpacks and returns just the sounds list so existing callers (which do
+    len(results) to count sounds found) keep working unchanged."""
+    sounds, _newly_pending = discover_song_sounds(db, song_id, title, artist)
+    return sounds
 
 def refresh_all_song_sounds(db, song_id):
     """Re-ingest every known Sound for a Song. Used by the hourly cron."""
