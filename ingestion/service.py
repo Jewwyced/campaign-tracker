@@ -704,3 +704,123 @@ def ingest_campaign_attached_sound(db_conn_factory, campaign_id, tiktok_sound_id
                 added += 1
         conn.commit()
     return added
+# ── New: consolidated per-song pipeline (discover -> qualify -> ingest posts) ──
+
+def qualify_pending_sounds_for_song(db_conn_factory, song_id):
+    """Check every pending sound for one song and promote to approved/inactive
+    based on video_count + relevance. This is the SAME logic as /api/refresh/qualify,
+    extracted here so both the cron route and the instant per-song pipeline
+    share one implementation instead of drifting apart."""
+    with db_conn_factory() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                SELECT snd.id, snd.sound_id
+                FROM sounds snd
+                WHERE snd.song_id = %s AND snd.status = 'pending'
+            """, (song_id,))
+            pending = [dict(r) for r in c.fetchall()]
+
+            c.execute("SELECT name, artist FROM songs WHERE id=%s", (song_id,))
+            song_row = c.fetchone()
+
+    song_name = (song_row["name"] if song_row else "").lower()
+    song_artist = (song_row["artist"] if song_row else "").lower()
+    song_words = [w for w in song_name.split() if len(w) > 3]
+
+    approved = 0
+    inactive = 0
+
+    for s in pending:
+        try:
+            raw = provider.get_sound_info(s["sound_id"])
+            if not raw:
+                new_status, video_count, title, author = "inactive", 0, "", ""
+            else:
+                music_info = raw.get("musicInfo", {})
+                if music_info:
+                    music = music_info.get("music", {})
+                    stats = music_info.get("stats", {})
+                    video_count = stats.get("videoCount") or 0
+                    title = music.get("title") or ""
+                    author = music.get("authorName") or ""
+                else:
+                    video_count = raw.get("video_count") or 0
+                    title = raw.get("title") or ""
+                    author = raw.get("author") or ""
+
+                title_lower = title.lower()
+                author_lower = author.lower()
+
+                if video_count == 0:
+                    new_status = "inactive"
+                else:
+                    is_relevant = (
+                        any(w in title_lower for w in song_words) or
+                        any(w in author_lower for w in song_words) or
+                        (song_artist and song_artist in author_lower) or
+                        title_lower == "" or
+                        "original" in title_lower
+                    )
+                    new_status = "approved" if is_relevant else "inactive"
+
+            with db_conn_factory() as conn:
+                with conn.cursor() as c:
+                    c.execute("""
+                        UPDATE sounds
+                        SET status=%s, current_video_count=%s,
+                            title=COALESCE(NULLIF(%s,''), title),
+                            author=COALESCE(NULLIF(%s,''), author)
+                        WHERE id=%s
+                    """, (new_status, video_count, title, author, s["id"]))
+                conn.commit()
+
+            if new_status == "approved":
+                approved += 1
+            else:
+                inactive += 1
+        except Exception as e:
+            _log(f"qualify_pending_sounds_for_song: failed on sound {s['id']}: {e}")
+
+    _log(f"qualify_pending_sounds_for_song: song {song_id} — {approved} approved, {inactive} inactive")
+    return {"approved": approved, "inactive": inactive, "checked": len(pending)}
+
+
+def ingest_approved_sounds_for_song(db_conn_factory, song_id, max_results=30):
+    """Fetch posts/videos for every approved sound belonging to one song, right now.
+    Unlike the global monitor cron (which only takes the top 25 stale sounds across
+    ALL campaigns), this targets exactly the sounds that matter for a just-added
+    song, so a demo doesn't have to wait for the next cron cycle."""
+    with db_conn_factory() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                SELECT id as sound_db_id, sound_id as tiktok_sound_id
+                FROM sounds
+                WHERE song_id = %s AND status = 'approved'
+            """, (song_id,))
+            sounds = [dict(r) for r in c.fetchall()]
+
+    posts_added = 0
+    ingested = 0
+    for s in sounds:
+        result = ingest_sound(db_conn_factory, song_id, s["sound_db_id"], s["tiktok_sound_id"], max_results=max_results)
+        posts_added += result.get("posts_added", 0)
+        if not result.get("error"):
+            ingested += 1
+
+    _log(f"ingest_approved_sounds_for_song: song {song_id} — {ingested}/{len(sounds)} sounds ingested, {posts_added} posts added")
+    return {"sounds_found": len(sounds), "sounds_ingested": ingested, "posts_added": posts_added}
+
+
+def run_full_pipeline_for_song(db_conn_factory, song_id, name, artist=""):
+    """The one call the frontend should make right after adding a song:
+    discover -> qualify -> ingest posts, all synchronously, all scoped to
+    this one song. This is what makes 'add song, it just appears' true."""
+    discovered = discover_song_sounds(db_conn_factory, song_id, name, artist or "")
+    qualify_result = qualify_pending_sounds_for_song(db_conn_factory, song_id)
+    ingest_result = ingest_approved_sounds_for_song(db_conn_factory, song_id)
+
+    return {
+        "sounds_discovered": len(discovered),
+        "qualify": qualify_result,
+        "ingest": ingest_result,
+    }

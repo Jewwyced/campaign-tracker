@@ -4,11 +4,15 @@ routes_refresh.py — two separate refresh endpoints with different schedules.
 /api/refresh/discover  — finds new sounds for active songs (every 6h)
 /api/refresh/monitor   — refreshes posts for existing sounds (every 1h)
 /api/refresh           — legacy endpoint, runs monitor only
+/api/songs/<id>/quick_refresh — instant discover+qualify+ingest for ONE song,
+                                 used right after a song is added so the demo
+                                 doesn't have to wait for any cron cycle.
 """
 
 import logging
 from flask import Blueprint, jsonify
 from ingestion import api as ingestion
+from ingestion import service as ingestion_service
 from ingestion.providers import default_provider as _provider
 from ingestion.parsers import parse_sound_info
 from db import db
@@ -109,52 +113,17 @@ def refresh_discover():
 
         logging.info(f"[discover] complete: {new_sounds_total} total sounds across {len(active_songs)} songs")
 
-        # Auto-qualify after discovery so new sounds become approved immediately
-        with db() as conn:
-            with conn.cursor() as c:
-                c.execute("""
-                    SELECT snd.id, snd.sound_id, s.name as song_name, s.artist
-                    FROM sounds snd
-                    JOIN songs s ON s.id = snd.song_id
-                    WHERE snd.status = 'pending'
-                    AND snd.song_id IN (
-                        SELECT cs.song_id FROM campaign_songs cs
-                        JOIN campaigns c ON c.id = cs.campaign_id
-                        WHERE c.status = 'In Progress'
-                    )
-                    LIMIT 100
-                """)
-                pending = [dict(r) for r in c.fetchall()]
-
-        from ingestion.providers import default_provider as _provider
+        # Auto-qualify after discovery so new sounds become approved immediately.
+        # NOTE: this reuses the same shared logic as /api/refresh/qualify and
+        # /api/songs/<id>/quick_refresh via ingestion_service.qualify_pending_sounds_for_song,
+        # so there is only ONE qualify implementation instead of three.
         auto_approved = 0
-        for s in pending:
+        for song in active_songs:
             try:
-                raw = _provider.get_sound_info(s["sound_id"])
-                if not raw:
-                    continue
-                music_info = raw.get("musicInfo", {})
-                stats = music_info.get("stats", {}) if music_info else {}
-                video_count = stats.get("videoCount") or 0
-                music = music_info.get("music", {}) if music_info else {}
-                title = (music.get("title") or "").lower()
-                author = (music.get("authorName") or "").lower()
-                song_words = [w for w in s["song_name"].lower().split() if len(w) > 3]
-                is_relevant = video_count > 0 and (
-                    any(w in title for w in song_words) or
-                    any(w in author for w in song_words) or
-                    "original" in title
-                )
-                new_status = "approved" if is_relevant else "inactive"
-                with db() as conn:
-                    with conn.cursor() as c:
-                        c.execute("UPDATE sounds SET status=%s, current_video_count=%s WHERE id=%s",
-                                  (new_status, video_count, s["id"]))
-                    conn.commit()
-                if new_status == "approved":
-                    auto_approved += 1
-            except Exception:
-                pass
+                result = ingestion_service.qualify_pending_sounds_for_song(db, song["song_id"])
+                auto_approved += result.get("approved", 0)
+            except Exception as e:
+                logging.warning(f"[discover] qualify failed for song {song['song_id']}: {e}")
 
         logging.info(f"[discover] auto-qualified {auto_approved} sounds")
         return jsonify({"ok": True, "songs_scanned": len(active_songs), "sounds_found": new_sounds_total, "auto_approved": auto_approved})
@@ -207,22 +176,18 @@ def refresh_monitor():
 def refresh_qualify():
     """Qualification scan — fetches music-info for pending sounds and promotes based on video_count.
     Run after discovery to decide which sounds deserve monitoring.
-    
-    Promotion tiers:
-    - video_count > 1000  → approved (hot)
-    - video_count > 100   → approved (warm)  
-    - video_count > 0     → approved (cold, monitor less frequently)
-    - video_count == 0    → inactive (dead)
+
+    NOTE: shares logic with the auto-qualify step inside /api/refresh/discover and
+    with /api/songs/<id>/quick_refresh via ingestion_service.qualify_pending_sounds_for_song.
     """
     if not _acquire_lock('qualify'):
         return jsonify({"ok": False, "reason": "ingestion already running"}), 429
 
     try:
-        # Get pending sounds that haven't been qualified yet
         with db() as conn:
             with conn.cursor() as c:
                 c.execute("""
-                    SELECT snd.id, snd.sound_id, snd.song_id
+                    SELECT DISTINCT snd.song_id
                     FROM sounds snd
                     WHERE snd.status = 'pending'
                     AND snd.song_id IN (
@@ -230,105 +195,62 @@ def refresh_qualify():
                         JOIN campaigns c ON c.id = cs.campaign_id
                         WHERE c.status = 'In Progress'
                     )
-                    ORDER BY snd.id
-                    LIMIT 50
                 """)
-                pending = [dict(r) for r in c.fetchall()]
+                song_ids = [r["song_id"] for r in c.fetchall()]
 
-        logging.info(f"[qualify] checking {len(pending)} pending sounds")
+        logging.info(f"[qualify] checking pending sounds across {len(song_ids)} songs")
 
-        approved = 0
-        inactive = 0
-        for s in pending:
-            try:
-                # Call TikLive directly for flat response with video_count
-                raw = _provider.get_sound_info(s["sound_id"])
-                print(f"[qualify] sound {s['sound_id']} raw={str(raw)[:80]}", flush=True)
-                if not raw:
-                    inactive += 1
-                    with db() as conn:
-                        with conn.cursor() as c:
-                            c.execute("UPDATE sounds SET status='inactive' WHERE id=%s", (s["id"],))
-                        conn.commit()
-                    continue
+        total_checked = total_approved = total_inactive = 0
+        for song_id in song_ids:
+            result = ingestion_service.qualify_pending_sounds_for_song(db, song_id)
+            total_checked += result.get("checked", 0)
+            total_approved += result.get("approved", 0)
+            total_inactive += result.get("inactive", 0)
 
-                # TikLive returns flat format wrapped in TikAPI shape
-                video_count = 0
-                title = ""
-                author = ""
-
-                music_info = raw.get("musicInfo", {})
-                if music_info:
-                    music = music_info.get("music", {})
-                    stats = music_info.get("stats", {})
-                    video_count = stats.get("videoCount") or 0
-                    title = music.get("title") or ""
-                    author = music.get("authorName") or ""
-                else:
-                    video_count = raw.get("video_count") or 0
-                    title = raw.get("title") or ""
-                    author = raw.get("author") or ""
-
-                if video_count == 0:
-                    new_status = "inactive"
-                    inactive += 1
-                else:
-                    # Relevance check — sound must relate to the song
-                    # Get song name and artist for this sound
-                    with db() as conn:
-                        with conn.cursor() as c:
-                            c.execute("SELECT name, artist FROM songs WHERE id=%s", (s["song_id"],))
-                            song_row = c.fetchone()
-
-                    song_name = (song_row["name"] if song_row else "").lower()
-                    song_artist = (song_row["artist"] if song_row else "").lower()
-                    title_lower = title.lower()
-                    author_lower = author.lower()
-
-                    # Extract key words from song name (skip short words)
-                    song_words = [w for w in song_name.split() if len(w) > 3]
-
-                    is_relevant = (
-                        any(w in title_lower for w in song_words) or
-                        any(w in author_lower for w in song_words) or
-                        (song_artist and song_artist in author_lower) or
-                        title_lower == "" or  # no title = original sound, allow
-                        "original sound" in title_lower or
-                        "original" in title_lower
-                    )
-
-                    if is_relevant:
-                        new_status = "approved"
-                        approved += 1
-                    else:
-                        new_status = "inactive"
-                        inactive += 1
-                        print(f"[qualify] rejected '{title}' by '{author}' — not relevant to '{song_name}'", flush=True)
-
-                with db() as conn:
-                    with conn.cursor() as c:
-                        c.execute("""
-                            UPDATE sounds 
-                            SET status=%s, current_video_count=%s,
-                                title=COALESCE(NULLIF(%s,''), title),
-                                author=COALESCE(NULLIF(%s,''), author)
-                            WHERE id=%s
-                        """, (new_status, video_count, title, author, s["id"]))
-                    conn.commit()
-
-            except Exception as e:
-                logging.warning(f"[qualify] failed for sound {s['id']}: {e}")
-
-        logging.info(f"[qualify] {len(pending)} checked: {approved} approved, {inactive} inactive")
+        logging.info(f"[qualify] {total_checked} checked: {total_approved} approved, {total_inactive} inactive")
         return jsonify({
             "ok": True,
-            "checked": len(pending),
-            "approved": approved,
-            "inactive": inactive,
+            "checked": total_checked,
+            "approved": total_approved,
+            "inactive": total_inactive,
         })
 
     except Exception as e:
         logging.exception("Qualify scan failed:")
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        _release_lock()
+
+
+@refresh_bp.route("/api/songs/<int:song_id>/quick_refresh", methods=["POST"])
+def quick_refresh_song(song_id):
+    """Instant, single-song pipeline: discover -> qualify -> ingest posts.
+    Call this right after creating a song so the UI can show a 'loading' state
+    and then have everything (sounds AND videos) appear at once — no separate
+    manual discover/qualify/monitor steps, no waiting for the next cron cycle.
+    """
+    if not _acquire_lock(f'quick_refresh_song_{song_id}'):
+        return jsonify({"ok": False, "reason": "ingestion already running"}), 429
+
+    try:
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute("SELECT id, name, artist FROM songs WHERE id=%s", (song_id,))
+                song = c.fetchone()
+
+        if not song:
+            return jsonify({"ok": False, "error": f"song {song_id} not found"}), 404
+
+        logging.info(f"[quick_refresh] starting full pipeline for song {song_id} ('{song['name']}')")
+        result = ingestion_service.run_full_pipeline_for_song(
+            db, song_id, song["name"], song["artist"] or ""
+        )
+        logging.info(f"[quick_refresh] song {song_id} complete: {result}")
+
+        return jsonify({"ok": True, "song_id": song_id, **result})
+
+    except Exception as e:
+        logging.exception(f"Quick refresh failed for song {song_id}:")
         return jsonify({"ok": False, "error": str(e)}), 500
     finally:
         _release_lock()
