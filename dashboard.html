@@ -73,7 +73,7 @@
   <div class="nav">
     <a href="/" class="active">Dashboard</a>
     <a href="/campaigns">Campaigns</a>
-    
+    <a href="/songs">Songs</a>
     <a href="/artists">Artists</a>
     <a href="/sounds">Sound lookup</a>
   </div>
@@ -115,6 +115,7 @@ async function load() {
         <div class="hero-stat"><div class="val">${fmt(d.total_creators)}</div><div class="lbl">Creators</div></div>
         <div class="hero-stat"><div class="val">${fmt(d.views_7d)}</div><div class="lbl">Views this week</div></div>
         <div class="hero-stat"><div class="val">${fmt(d.posts_7d)}</div><div class="lbl">New posts this week</div></div>
+        <div class="hero-stat"><div class="val">${fmt(d.total_sounds || 0)}</div><div class="lbl">Sounds tracked</div></div>
       </div>
     </div>
 
@@ -140,12 +141,7 @@ async function load() {
       `).join('')}
     </div>
 
-    ${d.top_creator ? `
-    <div class="section-title">Top Creator</div>
-    <div class="top-creator">
-      <div class="creator-name">@${escapeHtml(d.top_creator.username)}</div>
-      <div class="creator-stats">${fmt(d.top_creator.views)} views · ${d.top_creator.posts} posts</div>
-    </div>` : ''}
+  
   `;
 }
 

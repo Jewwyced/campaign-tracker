@@ -46,6 +46,16 @@ def get_dashboard_stats():
             c.execute("SELECT COUNT(*) as n FROM campaigns WHERE status='In Progress'")
             active_campaigns = c.fetchone()["n"] or 0
 
+            # Total approved sounds
+            c.execute("""
+                SELECT COUNT(DISTINCT snd.id) as n
+                FROM sounds snd
+                JOIN campaign_songs cs ON cs.song_id = snd.song_id
+                JOIN campaigns c ON c.id = cs.campaign_id
+                WHERE snd.status = 'approved' AND c.status = 'In Progress'
+            """)
+            total_sounds = c.fetchone()["n"] or 0
+
             # Top campaign by views
             c.execute("""
                 SELECT c.id, c.name, c.artist,
@@ -112,6 +122,7 @@ def get_dashboard_stats():
         "active_campaigns": active_campaigns,
         "top_campaign": top_campaign,
         "top_creator": top_creator,
+        "total_sounds": total_sounds,
         "campaign_breakdown": campaign_breakdown,
         "ai_summary": ai_summary,
     }
