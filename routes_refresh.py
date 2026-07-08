@@ -108,7 +108,56 @@ def refresh_discover():
                 logging.warning(f"[discover] failed for song {song['song_id']}: {e}")
 
         logging.info(f"[discover] complete: {new_sounds_total} total sounds across {len(active_songs)} songs")
-        return jsonify({"ok": True, "songs_scanned": len(active_songs), "sounds_found": new_sounds_total})
+
+        # Auto-qualify after discovery so new sounds become approved immediately
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute("""
+                    SELECT snd.id, snd.sound_id, s.name as song_name, s.artist
+                    FROM sounds snd
+                    JOIN songs s ON s.id = snd.song_id
+                    WHERE snd.status = 'pending'
+                    AND snd.song_id IN (
+                        SELECT cs.song_id FROM campaign_songs cs
+                        JOIN campaigns c ON c.id = cs.campaign_id
+                        WHERE c.status = 'In Progress'
+                    )
+                    LIMIT 100
+                """)
+                pending = [dict(r) for r in c.fetchall()]
+
+        from ingestion.providers import default_provider as _provider
+        auto_approved = 0
+        for s in pending:
+            try:
+                raw = _provider.get_sound_info(s["sound_id"])
+                if not raw:
+                    continue
+                music_info = raw.get("musicInfo", {})
+                stats = music_info.get("stats", {}) if music_info else {}
+                video_count = stats.get("videoCount") or 0
+                music = music_info.get("music", {}) if music_info else {}
+                title = (music.get("title") or "").lower()
+                author = (music.get("authorName") or "").lower()
+                song_words = [w for w in s["song_name"].lower().split() if len(w) > 3]
+                is_relevant = video_count > 0 and (
+                    any(w in title for w in song_words) or
+                    any(w in author for w in song_words) or
+                    "original" in title
+                )
+                new_status = "approved" if is_relevant else "inactive"
+                with db() as conn:
+                    with conn.cursor() as c:
+                        c.execute("UPDATE sounds SET status=%s, current_video_count=%s WHERE id=%s",
+                                  (new_status, video_count, s["id"]))
+                    conn.commit()
+                if new_status == "approved":
+                    auto_approved += 1
+            except Exception:
+                pass
+
+        logging.info(f"[discover] auto-qualified {auto_approved} sounds")
+        return jsonify({"ok": True, "songs_scanned": len(active_songs), "sounds_found": new_sounds_total, "auto_approved": auto_approved})
 
     except Exception as e:
         logging.exception("Discovery scan failed:")
