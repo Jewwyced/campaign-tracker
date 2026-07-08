@@ -33,6 +33,7 @@ def songs_collection():
             conn.commit()
 
         # Discover sounds — store as pending, cron handles qualify + monitor
+        print(f"[DEBUG] POST /api/songs discovering song_id={song_id} name={name!r} artist={artist!r}", flush=True)
         results = ingestion.ingest_song_sounds(db, song_id, name, artist)
         sounds_found = len(results) if results else 0
 

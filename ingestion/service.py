@@ -828,6 +828,7 @@ def ingest_approved_sounds_for_song(db_conn_factory, song_id, max_results=30):
 
 
 def run_full_pipeline_for_song(db_conn_factory, song_id, name, artist=""):
+    print(f"[DEBUG] quick_refresh discovering song_id={song_id} name={name!r} artist={artist!r}", flush=True)
     """The one call the frontend should make right after adding a song:
     discover -> qualify -> ingest posts, all synchronously, all scoped to
     this one song. This is what makes 'add song, it just appears' true."""
