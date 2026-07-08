@@ -198,11 +198,14 @@
 
   <div class="section-label">Songs</div>
   <div class="add-card">
-    <div class="add-label">Add a song — we'll find every TikTok sound for it automatically. e.g. "Griddle Yeat"</div>
-    <div class="add-row">
-      <input type="text" id="song-name-input" placeholder="Song name + artist, e.g. Griddle Yeat">
-      <button class="btn-primary" onclick="addSong()" id="add-song-btn">Add song</button>
-      <button id="sync-btn" onclick="syncNow()" style="font-size:13px;font-family:inherit;padding:9px 16px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text-secondary);cursor:pointer;white-space:nowrap;">↻ Sync</button>
+    <div class="add-label">Add a song — we'll find every TikTok sound for it automatically.</div>
+    <div class="add-row" style="flex-direction:column;gap:8px;">
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="song-name-input" placeholder="Song name, e.g. Griddle" style="flex:2;">
+        <input type="text" id="song-artist-input" placeholder="Artist, e.g. Yeat" style="flex:1;">
+        <button class="btn-primary" onclick="addSong()" id="add-song-btn">Add song</button>
+        <button id="sync-btn" onclick="syncNow()" style="font-size:13px;font-family:inherit;padding:9px 16px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text-secondary);cursor:pointer;white-space:nowrap;">↻ Sync</button>
+      </div>
     </div>
     <div id="add-song-error"></div>
     <div id="add-song-status"></div>
@@ -467,7 +470,9 @@ async function addSong() {
   const btn = document.getElementById('add-song-btn');
   const errEl = document.getElementById('add-song-error');
   const statusEl = document.getElementById('add-song-status');
+  const artistInput = document.getElementById('song-artist-input');
   const name = input.value.trim();
+  const artist = artistInput ? artistInput.value.trim() : '';
   if (!name) return;
   btn.disabled = true;
   btn.textContent = 'Searching...';
@@ -477,7 +482,7 @@ async function addSong() {
     const res = await fetch('/api/songs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name })
+      body: JSON.stringify({ name, artist })
     });
     const data = await res.json();
     if (!res.ok) {
@@ -490,6 +495,7 @@ async function addSong() {
         body: JSON.stringify({ song_id: data.song_id })
       });
       input.value = '';
+      if (artistInput) artistInput.value = '';
       statusEl.textContent = 'Added "' + name + '" — syncing now...';
       // Auto-sync after adding
       await fetch('/api/refresh/discover', { method: 'POST' });
@@ -529,6 +535,9 @@ async function deleteThisCampaign() {
 }
 
 document.getElementById('song-name-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') addSong();
+});
+document.getElementById('song-artist-input') && document.getElementById('song-artist-input').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') addSong();
 });
 
