@@ -7,6 +7,12 @@ routes_refresh.py — two separate refresh endpoints with different schedules.
 /api/songs/<id>/quick_refresh — instant discover+qualify+ingest for ONE song,
                                  used right after a song is added so the demo
                                  doesn't have to wait for any cron cycle.
+/api/songs/<id>/ingest_only    — fast, targeted post-pull for ONE song's
+                                 already-approved sounds. No discovery, no
+                                 qualify. Use this when a song's sounds are
+                                 already correctly approved and you just
+                                 need posts pulled in without risking the
+                                 slower/timeout-prone full pipeline.
 """
 
 import logging
@@ -251,6 +257,26 @@ def quick_refresh_song(song_id):
 
     except Exception as e:
         logging.exception(f"Quick refresh failed for song {song_id}:")
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        _release_lock()
+
+
+@refresh_bp.route("/api/songs/<int:song_id>/ingest_only", methods=["POST"])
+def ingest_only_song(song_id):
+    """Fast, targeted ingest for ONE song's already-approved sounds — no
+    discovery, no qualify. Use this when a song's sounds are already
+    correctly approved (e.g. approved manually) and you just need to pull
+    posts in without re-running the full (possibly slow/timeout-prone)
+    discover -> qualify -> ingest pipeline via quick_refresh."""
+    if not _acquire_lock(f'ingest_only_song_{song_id}'):
+        return jsonify({"ok": False, "reason": "ingestion already running"}), 429
+
+    try:
+        result = ingestion_service.ingest_approved_sounds_for_song(db, song_id)
+        return jsonify({"ok": True, "song_id": song_id, **result})
+    except Exception as e:
+        logging.exception(f"Ingest-only failed for song {song_id}:")
         return jsonify({"ok": False, "error": str(e)}), 500
     finally:
         _release_lock()
