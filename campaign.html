@@ -143,7 +143,7 @@
   <div class="nav">
     <a href="/">Dashboard</a>
     <a href="/campaigns" class="active">Campaigns</a>
-    
+    <a href="/songs">Songs</a>
     <a href="/artists">Artists</a>
     <a href="/sounds">Sound lookup</a>
   </div>
@@ -202,6 +202,7 @@
     <div class="add-row">
       <input type="text" id="song-name-input" placeholder="Song name + artist, e.g. Griddle Yeat">
       <button class="btn-primary" onclick="addSong()" id="add-song-btn">Add song</button>
+      <button id="sync-btn" onclick="syncNow()" style="font-size:13px;font-family:inherit;padding:9px 16px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text-secondary);cursor:pointer;white-space:nowrap;">↻ Sync</button>
     </div>
     <div id="add-song-error"></div>
     <div id="add-song-status"></div>
