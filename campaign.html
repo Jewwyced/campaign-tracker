@@ -490,7 +490,28 @@ async function addSong() {
         body: JSON.stringify({ song_id: data.song_id })
       });
       input.value = '';
-      statusEl.textContent = 'Added "' + name + '" with ' + (data.sounds_found || 0) + ' sounds.';
+
+      // Run the full discover -> qualify -> ingest pipeline for this song right
+      // now, instead of waiting for the next cron cycle. This is what makes
+      // videos show up immediately instead of just the bare sound list.
+      btn.textContent = 'Pulling videos...';
+      statusEl.textContent = 'Found sounds — now pulling videos for this song...';
+      try {
+        const refreshRes = await fetch('/api/songs/' + data.song_id + '/quick_refresh', {
+          method: 'POST'
+        });
+        const refreshData = await refreshRes.json();
+        if (refreshRes.ok) {
+          const postsAdded = (refreshData.ingest && refreshData.ingest.posts_added) || 0;
+          const approved = (refreshData.qualify && refreshData.qualify.approved) || 0;
+          statusEl.textContent = 'Added "' + name + '" — ' + approved + ' sounds approved, ' + postsAdded + ' videos pulled in.';
+        } else {
+          statusEl.textContent = 'Added "' + name + '", but the video pull failed: ' + (refreshData.error || 'unknown error') + '. Try Sync above.';
+        }
+      } catch (e) {
+        statusEl.textContent = 'Added "' + name + '", but the video pull failed. Try Sync above.';
+      }
+
       await load();
     }
   } catch(e) {
