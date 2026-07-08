@@ -42,8 +42,10 @@ class BaseProvider:
         """Return one page of raw posts for a sound, or None."""
         raise NotImplementedError
 
-    def search_sounds(self, query):
-        """Return raw search results JSON or None."""
+    def search_sounds(self, query, max_pages=None):
+        """Return raw search results JSON or None. max_pages is optional —
+        providers that don't support pagination limits (e.g. TikAPIProvider)
+        should ignore it."""
         raise NotImplementedError
 
     def get_account(self, username):
@@ -71,7 +73,8 @@ class TikAPIProvider(BaseProvider):
     def get_sound_posts_page(self, sound_id, cursor=0, count=30):
         return tikapi.get_music_posts_page(sound_id, cursor=cursor, count=count)
 
-    def search_sounds(self, query):
+    def search_sounds(self, query, max_pages=None):
+        # TikAPI's underlying search doesn't support a page cap — ignore it.
         return tikapi.get_search_general(query)
 
     def get_account(self, username):
@@ -97,7 +100,7 @@ class FallbackProvider(BaseProvider):
     def get_sound_posts_page(self, sound_id, cursor=0, count=30):
         return None  # Future: scraper
 
-    def search_sounds(self, query):
+    def search_sounds(self, query, max_pages=None):
         return None  # Future: Spotify/Apple Music search
 
     def get_account(self, username):
@@ -139,9 +142,12 @@ class ProviderPipeline:
                 return result
         return None
 
-    def search_sounds(self, query):
+    def search_sounds(self, query, max_pages=None):
         for p in self.providers:
-            result = p.search_sounds(query)
+            if max_pages is not None:
+                result = p.search_sounds(query, max_pages=max_pages)
+            else:
+                result = p.search_sounds(query)
             if result is not None:
                 return result
         return None
