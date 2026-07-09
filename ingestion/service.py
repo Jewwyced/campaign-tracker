@@ -33,10 +33,15 @@ SOURCE_CACHE    = "cache"
 SOURCE_TIKAPI   = "tikapi"
 SOURCE_FALLBACK = "fallback"
 
-DISCOVERY_PROFILES = {
-    "interactive": {"queries": 4, "challenge": False, "max_pages": 2},
-    "scheduled":   {"queries": 7, "challenge": True,  "max_pages": 6},
-}
+# Tier-2 fallback threshold for _classify_sound_match: when there's no
+# artist signal at all (generic "original sound - username" upload) but the
+# title is an exact match and the sound has clearly taken off, treat that
+# as good enough evidence. This is a heuristic, not a certainty — tune it
+# against real approval data over time. It deliberately does NOT apply when
+# the author field names a distinct, credited artist (see is_generic_upload
+# in _classify_sound_match) — that case is treated as real negative
+# evidence (a different official recording), not just "no evidence".
+TIER2_VIDEO_COUNT_THRESHOLD = 10000
 
 
 def _log(msg):
@@ -112,9 +117,10 @@ def _update_sound_velocity(db_conn_factory, sound_db_id):
 
 def _score_sound(sound, title, artist):
     """Score a sound candidate by relevance to the song title and artist.
-    Higher score = better match. Used to rank sounds before taking the top 5,
-    and also used at qualify-time to gate approval (see RELEVANCE_THRESHOLD
-    in qualify_pending_sounds_for_song).
+    Higher score = better match. Used ONLY to RANK sounds during discovery
+    (deciding which candidates are worth storing/logging first) — this is
+    NOT used to gate approval at qualify time. See _classify_sound_match()
+    for the pass/fail decision.
 
     NOTE: video_count is NOT scored here because search APIs don't return it.
     It is fetched later via _update_sound_video_count() after sounds are selected.
@@ -171,6 +177,115 @@ def _score_sound(sound, title, artist):
             score -= 30
 
     return score
+
+
+def _artist_signal(author_norm, artist_norm):
+    """True substring match between an artist name and a sound's author
+    field — deliberately looser than a word-subset check so that
+    concatenated, no-space handles like 'plaqueboymaxclips' or
+    'officialplaqueboymax' still match, not just space-separated variants
+    like 'plaqueboymax clips'. Checks both the normalized strings directly
+    and a no-space variant of each."""
+    if not artist_norm or not author_norm:
+        return False
+    if artist_norm in author_norm:
+        return True
+    author_nospace = author_norm.replace(" ", "")
+    artist_nospace = artist_norm.replace(" ", "")
+    return bool(artist_nospace) and artist_nospace in author_nospace
+
+
+def _classify_sound_match(sound_title, sound_author, song_title, song_artist, video_count=0):
+    """Three-tier relevance check used to GATE approval at qualify time.
+
+    History / why this looks like this:
+      1. Originally: substring `is_relevant` check that auto-passed empty
+         titles and anything containing "original" — approved huge numbers
+         of unrelated "original sound - username" clips.
+      2. Then: summed relevance SCORE via _score_sound with a threshold —
+         fixed (1), but a single strong signal (exact title match) could
+         still clear the threshold alone, regardless of artist. Broke on
+         common/famous titles: "Thong Song" approved Sisqo's original and
+         several unrelated covers under a song tracking a specific
+         PlaqueBoyMax sound, since title match alone was enough.
+      3. Then: mandatory artist match whenever an artist is on file — fixed
+         the Thong Song case, but over-corrected. TikTok author metadata is
+         frequently just the UPLOADER's handle, not the credited artist
+         (e.g. "original sound - maxfanpage"), which has NO textual relation
+         to the real artist even when the sound genuinely is the right one.
+         Treating "no artist signal" the same as "confirmed different
+         artist" caused false negatives on exactly the kind of messy,
+         generic-upload metadata that's extremely common on TikTok.
+      4. Now (this version): three tiers.
+           Tier 1 — artist signal found in author field (now via substring
+                    match, not strict word-subset) -> approve. This is
+                    real positive evidence.
+           Tier 2 — no artist signal, but the title carries TikTok's own
+                    "original sound - <uploader>" marker (meaning the
+                    author field is just an uploader handle, not a
+                    credited artist — so its mismatch is NOT counter-
+                    evidence), the title is an exact match, AND the sound
+                    has real traction (video_count over threshold) ->
+                    approve. This is the "maxfanpage" case: no evidence
+                    either way, so title + popularity carries it.
+           Tier 3 — everything else, including title matches where the
+                    author DOES look like a distinct, credited artist
+                    (e.g. "Sisqo") that doesn't match song_artist. That's
+                    real negative evidence (a different official
+                    recording), not just an absence of evidence -> reject.
+
+    Returns True (approve) or False (reject) — no partial credit.
+    """
+    title_norm = _normalize_str(song_title)
+    artist_norm = _normalize_str(song_artist) if song_artist else ""
+    s_title = _normalize_str(sound_title)
+    s_author = _normalize_str(sound_author)
+
+    if not title_norm:
+        return False  # no real song title to compare against — never approve blind
+
+    # --- Title strength ---
+    title_exact = (s_title == title_norm)
+    title_contains = (title_norm in s_title) and not title_exact
+    sig_words = [w for w in title_norm.split() if len(w) > 3]
+    title_words_matched = sum(1 for w in sig_words if w in s_title)
+    title_multiword = len(sig_words) >= 2 and title_words_matched >= 2
+
+    # A derivative marker downgrades a title match — a "remix"/"sped up"
+    # version is NOT proof this is the original campaign sound.
+    derivative_markers = [
+        "sped up", "slowed", "remix", "instrumental", "reverb", "cover",
+        "nightcore", "bass boosted", "8d", "phonk", "edit audio", "mashup",
+        "loop", "extended", "sped-up", "slow reverb", "lyrics"
+    ]
+    is_derivative = any(m in s_title for m in derivative_markers)
+
+    strong_title = (title_exact or title_contains) and not is_derivative
+
+    if not artist_norm:
+        # No artist on file to check against at all — fall back to title alone.
+        return strong_title
+
+    # --- Tier 1: real artist signal ---
+    if _artist_signal(s_author, artist_norm):
+        return True
+
+    # --- Tier 2: generic upload, no competing artist claim ---
+    # TikTok labels user-uploaded/reposted audio as "original sound - X".
+    # When a title carries that marker, the author field is just whichever
+    # user posted THIS particular video — it was never a credited artist,
+    # so a mismatch there tells us nothing. Only in that specific case do
+    # we fall back to title + popularity as a substitute signal.
+    is_generic_upload = "original sound" in s_title
+    if is_generic_upload and title_exact and not is_derivative and video_count >= TIER2_VIDEO_COUNT_THRESHOLD:
+        return True
+
+    # --- Tier 3: reject ---
+    # Covers both a clean, non-generic title with a DIFFERENT credited
+    # artist (e.g. "Thong Song" / "Sisqo") — real negative evidence — and
+    # generic uploads that simply haven't taken off enough to trust on
+    # title alone.
+    return False
 
 
 def _update_sound_video_count(db_conn_factory, sound_db_id, tiktok_sound_id):
@@ -262,11 +377,13 @@ def discover_sounds(query):
     return sounds
 
 
-def discover_sounds_from_videos(query, publish_time=7, max_pages=15):
+def discover_sounds_from_videos(query, publish_time=7):
     """Workflow B: discover sounds by searching recent videos and extracting music IDs.
     This finds NEW sounds being used this week, not historically relevant sounds.
     Returns list of dicts with sound_id, title, author, frequency (how many videos used it)."""
-    raw = provider.search_sounds(query, max_pages=max_pages)
+    raw = provider.search_sounds(query)
+    if not raw:
+        return []
 
     # parse_sounds_from_search returns deduplicated sounds
     # but we want frequency counts — re-parse manually
@@ -314,11 +431,9 @@ def create_sound(db_conn_factory, song_id, sound):
 
 
 def get_or_create_sound(db_conn_factory, song_id, sound):
-    """Get existing sound or create new one. Always returns (id, status).
+    """Get existing sound or create new one. Always returns a db id.
     New sounds get status='pending' — monitor decides when to ingest them.
-    Existing sounds keep their current status — the ON CONFLICT branch never
-    touches status, only title/author, so the returned status tells you
-    whether this sound is new-and-unqualified or already handled."""
+    Existing sounds keep their current status."""
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("""
@@ -327,11 +442,12 @@ def get_or_create_sound(db_conn_factory, song_id, sound):
                 ON CONFLICT (song_id, sound_id) DO UPDATE SET
                     title=EXCLUDED.title,
                     author=EXCLUDED.author
-                RETURNING id, status
+                RETURNING id
             """, (song_id, sound["sound_id"], sound["title"], sound["author"]))
             row = c.fetchone()
         conn.commit()
-    return (row["id"], row["status"]) if row else (None, None)
+    return row["id"] if row else None
+
 
 def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_results=30):
     """Refresh one Sound's posts and video-count snapshot.
@@ -450,87 +566,79 @@ def discover_sounds_from_challenge(title, artist=""):
     return all_sounds
 
 
-def discover_song_sounds(db_conn_factory, song_id, title, artist="", mode="scheduled"):
+def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
     """Aggressive sound discovery using multiple search queries and pagination.
     Goal: find as many legitimate sounds as possible, store all of them.
     Monitoring will decide which ones to track frequently.
-
-    mode='scheduled' (default): full 7-query + challenge crawl, used by cron.
-    mode='interactive': capped 4-query, no challenge crawl, used by quick_refresh.
-
-    Returns (sounds, newly_pending):
-      sounds: the ranked sound candidates that were stored this run
-      newly_pending: [{"db_id":..., "sound_id":...}] — only the ones that
-        were actually NEW this run (status='pending' after upsert), not
-        sounds that already existed as approved/inactive from a prior run.
     """
-    profile = DISCOVERY_PROFILES[mode]
-
+    # Multiple search queries to maximize coverage
     title_clean = title.strip()
+    # Clean artist — remove featured artists, take only primary artist
     artist_raw = artist.strip() if artist else ""
     artist_clean = artist_raw.split(',')[0].split('&')[0].split('feat')[0].split('ft.')[0].strip()
 
+    # Generate hashtag variants
     title_hashtag = "#" + title_clean.lower().replace(" ", "")
     artist_hashtag = "#" + artist_clean.lower().replace(" ", "") if artist_clean else ""
 
-    all_queries = list(dict.fromkeys(filter(None, [
+    queries = list(dict.fromkeys(filter(None, [
         f"{title_clean} {artist_clean}".strip(),
         title_clean,
-        f"{title_clean} sped up",
-        f"{title_clean} slowed",
         title_hashtag,
         artist_hashtag,
+        f"{title_clean} sped up",
+        f"{title_clean} slowed",
         f"{title_clean} remix",
     ])))
-    queries = all_queries[:profile["queries"]]
 
     seen_ids = set()
     all_sounds = []
 
+    # Method 1: Video search
     for query in queries:
-        sounds = discover_sounds_from_videos(query, max_pages=profile["max_pages"])
+        sounds = discover_sounds_from_videos(query)
         for s in sounds:
             sid = s.get("sound_id")
             if sid and sid not in seen_ids:
                 seen_ids.add(sid)
                 all_sounds.append(s)
 
-    if profile["challenge"]:
-        challenge_sounds = discover_sounds_from_challenge(title, artist)
-        for s in challenge_sounds:
-            sid = s.get("sound_id")
-            if sid and sid not in seen_ids:
-                seen_ids.add(sid)
-                all_sounds.append(s)
+    # Method 2: Challenge/hashtag crawl (finds many more sounds)
+    challenge_sounds = discover_sounds_from_challenge(title, artist)
+    for s in challenge_sounds:
+        sid = s.get("sound_id")
+        if sid and sid not in seen_ids:
+            seen_ids.add(sid)
+            all_sounds.append(s)
 
-    _log(f"discover_song_sounds[{mode}]: {len(all_sounds)} unique sounds from "
-         f"{len(queries)} queries{' + challenge crawl' if profile['challenge'] else ''}")
+    _log(f"discover_song_sounds: {len(all_sounds)} unique sounds from search + challenge crawl")
 
+    # Score for ranking/logging but store ALL sounds — don't filter aggressively
     def score(s):
         base = _score_sound(s, title, artist)
         freq_bonus = min(s.get("frequency", 0) * 5, 50)
         return base + freq_bonus
 
+    # Sort by score but keep all of them
     ranked_sounds = sorted(all_sounds, key=score, reverse=True)
 
     _log(f"discover_song_sounds: storing all {len(ranked_sounds)} sounds")
     for i, s in enumerate(ranked_sounds[:5]):
         _log(f"  #{i+1} '{s.get('title')}' score={score(s)} freq={s.get('frequency',0)}")
 
+    # Store ALL sounds as pending — qualify endpoint will promote based on video_count
     stored = 0
-    newly_pending = []
     for s in ranked_sounds:
         try:
-            sound_db_id, status = get_or_create_sound(db_conn_factory, song_id, s)
+            sound_db_id = get_or_create_sound(db_conn_factory, song_id, s)
             if sound_db_id:
                 stored += 1
-                if status == 'pending':
-                    newly_pending.append({"db_id": sound_db_id, "sound_id": s["sound_id"]})
         except Exception as e:
             _log(f"EXCEPTION storing sound {s.get('sound_id')} for song {song_id}: {e}")
 
     _log(f"discover_song_sounds: stored {stored} sounds as pending — run /qualify to promote")
-    return ranked_sounds[:stored], newly_pending
+    return ranked_sounds[:stored]
+
 
 def _promote_top_sounds(db_conn_factory, song_id, sounds):
     """Promote top-scored sounds to approved status so monitor ingests them."""
@@ -720,40 +828,32 @@ def ingest_campaign_attached_sound(db_conn_factory, campaign_id, tiktok_sound_id
     return added
 # ── New: consolidated per-song pipeline (discover -> qualify -> ingest posts) ──
 
-def qualify_sounds(db_conn_factory, song_id, sounds):
-    """Qualify a specific list of sounds passed in directly — no DB read to
-    find them first. sounds: [{"db_id": ..., "sound_id": ...}, ...]
-
-    Same scoring logic as before (via _score_sound), factored out here so
-    both the cron-driven backlog sweep and the interactive per-song
-    pipeline share one implementation instead of drifting apart.
-
-    IMPORTANT: previously this used a substring-based `is_relevant` check
-    that included `title_lower == ""` and `"original" in title_lower` as
-    automatic passes. Since almost every generic TikTok clip is titled
-    "original sound - username", that second condition alone approved
-    huge numbers of completely unrelated sounds regardless of actual
-    match to the song. Both catch-alls have been removed in favor of a
-    real relevance score with a minimum threshold.
+def qualify_pending_sounds_for_song(db_conn_factory, song_id):
+    """Check every pending sound for one song and promote to approved/inactive
+    based on video_count + a tiered relevance check (see
+    _classify_sound_match). This is the SAME logic as /api/refresh/qualify,
+    extracted here so both the cron route and the instant per-song pipeline
+    share one implementation instead of drifting apart.
     """
     with db_conn_factory() as conn:
         with conn.cursor() as c:
+            c.execute("""
+                SELECT snd.id, snd.sound_id
+                FROM sounds snd
+                WHERE snd.song_id = %s AND snd.status = 'pending'
+            """, (song_id,))
+            pending = [dict(r) for r in c.fetchall()]
+
             c.execute("SELECT name, artist FROM songs WHERE id=%s", (song_id,))
             song_row = c.fetchone()
 
     song_name = song_row["name"] if song_row else ""
     song_artist = song_row["artist"] if song_row else ""
 
-    # Minimum score required to approve. _score_sound gives:
-    #   150 exact title match, 100 title contained, 40 multi-word match
-    #   100 exact artist match, 75 artist words subset, 30 partial artist
-    #   50 original-sound bonus, -30 per derivative-version penalty
-    RELEVANCE_THRESHOLD = 100
-
     approved = 0
     inactive = 0
 
-    for s in sounds:
+    for s in pending:
         try:
             raw = provider.get_sound_info(s["sound_id"])
             if not raw:
@@ -774,13 +874,9 @@ def qualify_sounds(db_conn_factory, song_id, sounds):
                 if video_count == 0:
                     new_status = "inactive"
                 else:
-                    is_original = "original sound" in title.lower()
-                    score = _score_sound(
-                        {"title": title, "author": author, "is_original": is_original},
-                        song_name, song_artist
-                    )
-                    new_status = "approved" if score >= RELEVANCE_THRESHOLD else "inactive"
-                    _log(f"  sound {s['db_id']} '{title}' by '{author}' score={score} -> {new_status}")
+                    is_relevant = _classify_sound_match(title, author, song_name, song_artist, video_count)
+                    new_status = "approved" if is_relevant else "inactive"
+                    _log(f"  sound {s['id']} '{title}' by '{author}' video_count={video_count} relevant={is_relevant} -> {new_status}")
 
             with db_conn_factory() as conn:
                 with conn.cursor() as c:
@@ -790,7 +886,7 @@ def qualify_sounds(db_conn_factory, song_id, sounds):
                             title=COALESCE(NULLIF(%s,''), title),
                             author=COALESCE(NULLIF(%s,''), author)
                         WHERE id=%s
-                    """, (new_status, video_count, title, author, s["db_id"]))
+                    """, (new_status, video_count, title, author, s["id"]))
                 conn.commit()
 
             if new_status == "approved":
@@ -798,25 +894,10 @@ def qualify_sounds(db_conn_factory, song_id, sounds):
             else:
                 inactive += 1
         except Exception as e:
-            _log(f"qualify_sounds: failed on sound {s['db_id']}: {e}")
+            _log(f"qualify_pending_sounds_for_song: failed on sound {s['id']}: {e}")
 
-    _log(f"qualify_sounds: song {song_id} — {approved} approved, {inactive} inactive")
-    return {"approved": approved, "inactive": inactive, "checked": len(sounds)}
-
-
-def qualify_pending_sounds_for_song(db_conn_factory, song_id):
-    """Check every pending sound for one song (the full historical backlog)
-    and promote to approved/inactive. Used by the cron /api/refresh/qualify.
-    Delegates the actual scoring/write logic to qualify_sounds()."""
-    with db_conn_factory() as conn:
-        with conn.cursor() as c:
-            c.execute("""
-                SELECT snd.id, snd.sound_id
-                FROM sounds snd
-                WHERE snd.song_id = %s AND snd.status = 'pending'
-            """, (song_id,))
-            pending = [{"db_id": r["id"], "sound_id": r["sound_id"]} for r in c.fetchall()]
-    return qualify_sounds(db_conn_factory, song_id, pending)
+    _log(f"qualify_pending_sounds_for_song: song {song_id} — {approved} approved, {inactive} inactive")
+    return {"approved": approved, "inactive": inactive, "checked": len(pending)}
 
 
 def ingest_approved_sounds_for_song(db_conn_factory, song_id, max_results=30):
@@ -848,16 +929,13 @@ def ingest_approved_sounds_for_song(db_conn_factory, song_id, max_results=30):
 def run_full_pipeline_for_song(db_conn_factory, song_id, name, artist=""):
     """The one call the frontend should make right after adding a song:
     discover -> qualify -> ingest posts, all synchronously, all scoped to
-    this one song. Uses the interactive discovery profile (capped queries
-    and pages) and only qualifies sounds newly found this run — the
-    historical pending backlog is left for the cron to clear."""
-    print(f"[DEBUG] quick_refresh discovering song_id={song_id} name={name!r} artist={artist!r}", flush=True)
-    sounds, newly_pending = discover_song_sounds(db_conn_factory, song_id, name, artist or "", mode="interactive")
-    qualify_result = qualify_sounds(db_conn_factory, song_id, newly_pending)
+    this one song. This is what makes 'add song, it just appears' true."""
+    discovered = discover_song_sounds(db_conn_factory, song_id, name, artist or "")
+    qualify_result = qualify_pending_sounds_for_song(db_conn_factory, song_id)
     ingest_result = ingest_approved_sounds_for_song(db_conn_factory, song_id)
 
     return {
-        "sounds_discovered": len(sounds),
+        "sounds_discovered": len(discovered),
         "qualify": qualify_result,
         "ingest": ingest_result,
     }
