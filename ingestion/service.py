@@ -264,16 +264,35 @@ def _classify_sound_match(sound_title, sound_author, song_title, song_artist, vi
         # No artist on file to check against at all — fall back to title alone.
         return strong_title
 
-    # --- Tier 1: real artist signal ---
-    if _artist_signal(s_author, artist_norm):
+    # --- Tier 1: confirmed artist match AND some real title relation ---
+    # Artist match ALONE is not enough — an artist can have many songs
+    # (e.g. PlaqueBoyMax has "Thong Song" AND "Pink Dreads" AND others).
+    # Matching the artist only tells you this person is associated with
+    # the sound, not WHICH of their songs it is. Without also requiring a
+    # title relation, a search for "Thong Song" by PlaqueBoyMax would
+    # happily approve "Pink Dreads" by the same artist — a real, different
+    # song. Require both signals together for a Tier 1 approval.
+    if _artist_signal(s_author, artist_norm) and (strong_title or title_multiword):
         return True
 
     # --- Tier 2: generic upload, no competing artist claim ---
+    # A genuinely generic upload's title field is "original sound -
+    # <uploader>" — it NEVER contains the actual song title, so requiring
+    # a title match here is a contradiction in terms (a bug caught by the
+    # regression test suite: this tier silently never fired in production
+    # because is_generic_upload and title_exact can never both be true).
+    # There is no title signal to check for these — the only available
+    # evidence is that this candidate already passed discovery's targeted
+    # search (title/artist/hashtag queries) to even reach qualify, plus
+    # real popularity.
     is_generic_upload = "original sound" in s_title
-    if is_generic_upload and title_exact and not is_derivative and video_count >= TIER2_VIDEO_COUNT_THRESHOLD:
+    if is_generic_upload and not is_derivative and video_count >= TIER2_VIDEO_COUNT_THRESHOLD:
         return True
 
     # --- Tier 3: reject ---
+    # Covers: artist matches but title is unrelated (a different song by
+    # the same artist), title matches but a DIFFERENT credited artist owns
+    # it, and low-traction generic uploads.
     return False
 
 
