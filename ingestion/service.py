@@ -38,10 +38,29 @@ SOURCE_FALLBACK = "fallback"
 # title is an exact match and the sound has clearly taken off, treat that
 # as good enough evidence. This is a heuristic, not a certainty — tune it
 # against real approval data over time. It deliberately does NOT apply when
-# the author field names a distinct, credited artist (see is_generic_upload
-# in _classify_sound_match) — that case is treated as real negative
-# evidence (a different official recording), not just "no evidence".
+# the author field names a distinct, credited artist — that case is treated
+# as real negative evidence (a different official recording), not just
+# "no evidence".
 TIER2_VIDEO_COUNT_THRESHOLD = 10000
+
+# Max number of pending sounds to actually hit the provider for in a single
+# qualify_pending_sounds_for_song() call. A song can easily have 200-400
+# pending candidates after discovery (common titles + hashtag/challenge
+# crawling produce huge candidate lists). Calling get_sound_info() for
+# EVERY pending sound inside one synchronous HTTP request doesn't scale —
+# gunicorn's worker timeout will kill the request partway through (and
+# crash the worker in the process), leaving the song half-approved,
+# half-pending.
+#
+# Set to 5, not a larger "safety margin" number, because that's the actual
+# MVP goal: the top 5 highest-confidence sounds, not "as many as we can
+# squeeze in before timing out." Even 30 sequential provider calls can
+# still blow the worker timeout if the upstream API has a few slow
+# responses (each call has a 5s connect / 10s read timeout with one retry,
+# so a handful of slow calls alone can eat 30+ seconds) — cutting to 5
+# both matches the actual product goal AND gives a much bigger, more
+# reliable safety margin against timeouts than trimming the count alone.
+QUALIFY_BATCH_SIZE = 5
 
 
 def _log(msg):
@@ -117,10 +136,12 @@ def _update_sound_velocity(db_conn_factory, sound_db_id):
 
 def _score_sound(sound, title, artist):
     """Score a sound candidate by relevance to the song title and artist.
-    Higher score = better match. Used ONLY to RANK sounds during discovery
-    (deciding which candidates are worth storing/logging first) — this is
-    NOT used to gate approval at qualify time. See _classify_sound_match()
-    for the pass/fail decision.
+    Higher score = better match. Used to RANK sounds — both during
+    discovery (deciding which candidates are worth storing/logging first)
+    and now also at qualify time (deciding which pending sounds are worth
+    an actual provider call this batch, see QUALIFY_BATCH_SIZE). This is
+    NOT used to gate approval — see _classify_sound_match() for the
+    pass/fail decision.
 
     NOTE: video_count is NOT scored here because search APIs don't return it.
     It is fetched later via _update_sound_video_count() after sounds are selected.
@@ -198,41 +219,18 @@ def _artist_signal(author_norm, artist_norm):
 def _classify_sound_match(sound_title, sound_author, song_title, song_artist, video_count=0):
     """Three-tier relevance check used to GATE approval at qualify time.
 
-    History / why this looks like this:
-      1. Originally: substring `is_relevant` check that auto-passed empty
-         titles and anything containing "original" — approved huge numbers
-         of unrelated "original sound - username" clips.
-      2. Then: summed relevance SCORE via _score_sound with a threshold —
-         fixed (1), but a single strong signal (exact title match) could
-         still clear the threshold alone, regardless of artist. Broke on
-         common/famous titles: "Thong Song" approved Sisqo's original and
-         several unrelated covers under a song tracking a specific
-         PlaqueBoyMax sound, since title match alone was enough.
-      3. Then: mandatory artist match whenever an artist is on file — fixed
-         the Thong Song case, but over-corrected. TikTok author metadata is
-         frequently just the UPLOADER's handle, not the credited artist
-         (e.g. "original sound - maxfanpage"), which has NO textual relation
-         to the real artist even when the sound genuinely is the right one.
-         Treating "no artist signal" the same as "confirmed different
-         artist" caused false negatives on exactly the kind of messy,
-         generic-upload metadata that's extremely common on TikTok.
-      4. Now (this version): three tiers.
-           Tier 1 — artist signal found in author field (now via substring
-                    match, not strict word-subset) -> approve. This is
-                    real positive evidence.
-           Tier 2 — no artist signal, but the title carries TikTok's own
-                    "original sound - <uploader>" marker (meaning the
-                    author field is just an uploader handle, not a
-                    credited artist — so its mismatch is NOT counter-
-                    evidence), the title is an exact match, AND the sound
-                    has real traction (video_count over threshold) ->
-                    approve. This is the "maxfanpage" case: no evidence
-                    either way, so title + popularity carries it.
-           Tier 3 — everything else, including title matches where the
-                    author DOES look like a distinct, credited artist
-                    (e.g. "Sisqo") that doesn't match song_artist. That's
-                    real negative evidence (a different official
-                    recording), not just an absence of evidence -> reject.
+    Tier 1 — artist signal found in author field (substring match, handles
+             concatenated handles) -> approve. Real positive evidence.
+    Tier 2 — no artist signal, but the title carries TikTok's own
+             "original sound - <uploader>" marker (meaning the author
+             field is just an uploader handle, not a credited artist — so
+             its mismatch is NOT counter-evidence), the title is an exact
+             match, AND the sound has real traction (video_count over
+             TIER2_VIDEO_COUNT_THRESHOLD) -> approve.
+    Tier 3 — everything else, including title matches where the author DOES
+             look like a distinct, credited artist that doesn't match
+             song_artist. That's real negative evidence (a different
+             official recording), not just an absence of evidence -> reject.
 
     Returns True (approve) or False (reject) — no partial credit.
     """
@@ -271,20 +269,11 @@ def _classify_sound_match(sound_title, sound_author, song_title, song_artist, vi
         return True
 
     # --- Tier 2: generic upload, no competing artist claim ---
-    # TikTok labels user-uploaded/reposted audio as "original sound - X".
-    # When a title carries that marker, the author field is just whichever
-    # user posted THIS particular video — it was never a credited artist,
-    # so a mismatch there tells us nothing. Only in that specific case do
-    # we fall back to title + popularity as a substitute signal.
     is_generic_upload = "original sound" in s_title
     if is_generic_upload and title_exact and not is_derivative and video_count >= TIER2_VIDEO_COUNT_THRESHOLD:
         return True
 
     # --- Tier 3: reject ---
-    # Covers both a clean, non-generic title with a DIFFERENT credited
-    # artist (e.g. "Thong Song" / "Sisqo") — real negative evidence — and
-    # generic uploads that simply haven't taken off enough to trust on
-    # title alone.
     return False
 
 
@@ -828,17 +817,35 @@ def ingest_campaign_attached_sound(db_conn_factory, campaign_id, tiktok_sound_id
     return added
 # ── New: consolidated per-song pipeline (discover -> qualify -> ingest posts) ──
 
-def qualify_pending_sounds_for_song(db_conn_factory, song_id):
-    """Check every pending sound for one song and promote to approved/inactive
-    based on video_count + a tiered relevance check (see
-    _classify_sound_match). This is the SAME logic as /api/refresh/qualify,
-    extracted here so both the cron route and the instant per-song pipeline
-    share one implementation instead of drifting apart.
+def qualify_pending_sounds_for_song(db_conn_factory, song_id, batch_size=QUALIFY_BATCH_SIZE):
+    """Check up to `batch_size` pending sounds for one song — ranked by
+    relevance score first — and promote to approved/inactive based on
+    video_count + a tiered relevance check (see _classify_sound_match).
+    This is the SAME logic as /api/refresh/qualify, extracted here so both
+    the cron route and the instant per-song pipeline share one
+    implementation instead of drifting apart.
+
+    IMPORTANT: this used to process EVERY pending sound for a song in one
+    call. A song can have 200-400+ pending candidates after discovery
+    (common titles + hashtag/challenge crawling produce huge candidate
+    lists), and calling the provider once per sound inside a single
+    synchronous HTTP request doesn't scale — gunicorn's worker timeout
+    killed the request partway through and crashed the worker, leaving
+    the song half-approved, half-pending, and forcing repeated retries
+    that hit the same wall.
+
+    Fix: rank pending sounds by _score_sound (using the title/author
+    already stored from discovery — no extra provider calls needed just
+    to rank) and only make provider calls for the top `batch_size`
+    candidates. The real match is almost always near the top of that
+    ranking. Everything past the batch stays 'pending' and gets picked up
+    by the next hourly monitor/qualify cron cycle instead of blocking
+    this request.
     """
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("""
-                SELECT snd.id, snd.sound_id
+                SELECT snd.id, snd.sound_id, snd.title, snd.author
                 FROM sounds snd
                 WHERE snd.song_id = %s AND snd.status = 'pending'
             """, (song_id,))
@@ -850,10 +857,22 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id):
     song_name = song_row["name"] if song_row else ""
     song_artist = song_row["artist"] if song_row else ""
 
+    def rank_key(s):
+        return _score_sound({"title": s.get("title"), "author": s.get("author")}, song_name, song_artist)
+
+    pending_sorted = sorted(pending, key=rank_key, reverse=True)
+    batch = pending_sorted[:batch_size]
+    remaining = len(pending_sorted) - len(batch)
+
+    _log(f"qualifying {len(pending_sorted)} pending sounds for song {song_id} (batch_size={batch_size})")
+    if remaining > 0:
+        _log(f"qualify_pending_sounds_for_song: song {song_id} has {len(pending_sorted)} pending — "
+             f"processing top {len(batch)} this call, leaving {remaining} for next cron cycle")
+
     approved = 0
     inactive = 0
 
-    for s in pending:
+    for s in batch:
         try:
             raw = provider.get_sound_info(s["sound_id"])
             if not raw:
@@ -896,8 +915,8 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id):
         except Exception as e:
             _log(f"qualify_pending_sounds_for_song: failed on sound {s['id']}: {e}")
 
-    _log(f"qualify_pending_sounds_for_song: song {song_id} — {approved} approved, {inactive} inactive")
-    return {"approved": approved, "inactive": inactive, "checked": len(pending)}
+    _log(f"qualify_pending_sounds_for_song: song {song_id} — {approved} approved, {inactive} inactive, {remaining} still pending")
+    return {"approved": approved, "inactive": inactive, "checked": len(batch), "remaining_pending": remaining}
 
 
 def ingest_approved_sounds_for_song(db_conn_factory, song_id, max_results=30):
@@ -929,7 +948,14 @@ def ingest_approved_sounds_for_song(db_conn_factory, song_id, max_results=30):
 def run_full_pipeline_for_song(db_conn_factory, song_id, name, artist=""):
     """The one call the frontend should make right after adding a song:
     discover -> qualify -> ingest posts, all synchronously, all scoped to
-    this one song. This is what makes 'add song, it just appears' true."""
+    this one song. This is what makes 'add song, it just appears' true.
+
+    Note: qualify is now capped to QUALIFY_BATCH_SIZE candidates per call
+    (see qualify_pending_sounds_for_song). For songs with a huge pending
+    list, some sounds will remain 'pending' after this call returns and
+    get processed by the next hourly cron cycle instead — this trades a
+    small amount of initial completeness for the pipeline actually
+    finishing instead of timing out and crashing the worker."""
     discovered = discover_song_sounds(db_conn_factory, song_id, name, artist or "")
     qualify_result = qualify_pending_sounds_for_song(db_conn_factory, song_id)
     ingest_result = ingest_approved_sounds_for_song(db_conn_factory, song_id)

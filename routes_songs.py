@@ -12,6 +12,18 @@ from db import db
 
 songs_bp = Blueprint("songs", __name__)
 
+# Max number of a song's approved sounds to actually refresh (network calls)
+# in one call to /api/songs/<id>/refresh. Standalone Songs (not attached to
+# any in-progress Campaign) have NO cron safety net — this manual refresh
+# is the ONLY path their sounds ever get updated through, unlike campaign
+# sounds which also get picked up by the hourly monitor cron. So instead of
+# capping and leaving a remainder to "get picked up automatically" (there's
+# nothing to pick it up), this orders by staleness (oldest last_ingested_at
+# first) and only processes the top N — repeated manual refreshes then
+# naturally rotate through every approved sound over time, each call bounded
+# and safe, rather than one call trying to force-refresh everything at once.
+SONG_REFRESH_BATCH_SIZE = 15
+
 
 @songs_bp.route("/api/songs", methods=["GET", "POST"])
 def songs_collection():
@@ -242,8 +254,26 @@ def song_posts(song_id):
 
 @songs_bp.route("/api/songs/<int:song_id>/refresh", methods=["POST"])
 def refresh_song(song_id):
-    """Re-discover sounds and refresh all posts for a song.
-    Safe to call at any time — never deletes existing data."""
+    """Re-discover sounds and refresh posts for a song.
+    Safe to call at any time — never deletes existing data.
+
+    IMPORTANT: this used to force-clear last_ingested_at on EVERY approved
+    sound before refreshing, which defeated ingest_sound's own freshness
+    cache (a 6-hour window meant to skip sounds refreshed recently, cheaply,
+    with just a DB read). That guaranteed a full network round-trip for
+    every single approved sound on every click, no matter how recently it
+    had been refreshed — which is a large part of why this endpoint was
+    timing out and crashing gunicorn workers. That forced reset is gone.
+
+    Standalone Songs (not attached to any in-progress Campaign) have no
+    cron safety net — this manual refresh is the only path their sounds
+    ever get updated through. So rather than capping the batch and letting
+    "the rest" get picked up automatically (there's nothing to pick it up
+    here), this orders approved sounds by staleness (oldest
+    last_ingested_at first, nulls first) and only processes the top
+    SONG_REFRESH_BATCH_SIZE per call. Repeated manual refreshes naturally
+    rotate through every approved sound over time, each call bounded.
+    """
     with db() as conn:
         with conn.cursor() as c:
             c.execute("SELECT name, artist FROM songs WHERE id=%s", (song_id,))
@@ -256,31 +286,46 @@ def refresh_song(song_id):
     # Step 1: Discover new sounds (won't duplicate existing ones)
     new_sounds = ingestion.ingest_song_sounds(db, song_id, name, artist)
 
-    # Step 2: Refresh ALL approved sounds for this song (force refresh by clearing last_ingested_at)
+    # Step 2: Pick the STALEST approved sounds first, capped to a safe
+    # batch size — ingest_sound's own freshness check will still skip any
+    # of these that happen to already be fresh (e.g. refreshed by the
+    # discover step above), so this is a ceiling on network calls, not a
+    # guarantee that all of them hit the provider.
     with db() as conn:
         with conn.cursor() as c:
             c.execute("""
-                UPDATE sounds SET last_ingested_at = NULL
-                WHERE song_id = %s AND status = 'approved'
-            """, (song_id,))
-        conn.commit()
-
-    # Step 3: Re-ingest all sounds
-    with db() as conn:
-        with conn.cursor() as c:
-            c.execute("SELECT id, sound_id FROM sounds WHERE song_id=%s AND status='approved'", (song_id,))
+                SELECT id, sound_id
+                FROM sounds
+                WHERE song_id=%s AND status='approved'
+                ORDER BY last_ingested_at ASC NULLS FIRST
+                LIMIT %s
+            """, (song_id, SONG_REFRESH_BATCH_SIZE))
             sounds = [dict(r) for r in c.fetchall()]
 
+            c.execute("""
+                SELECT COUNT(*) as total FROM sounds
+                WHERE song_id=%s AND status='approved'
+            """, (song_id,))
+            total_approved = c.fetchone()["total"]
+
     posts_added = 0
+    ingested = 0
     for s in sounds:
         result = ingestion.ingest_sound(db, song_id, s["id"], s["sound_id"], max_results=35)
         posts_added += result.get("posts_added", 0)
+        if not result.get("error"):
+            ingested += 1
+
+    remaining = max(total_approved - len(sounds), 0)
 
     return jsonify({
         "ok": True,
         "new_sounds": len(new_sounds) if new_sounds else 0,
         "sounds_refreshed": len(sounds),
-        "posts_added": posts_added
+        "sounds_ingested": ingested,
+        "posts_added": posts_added,
+        "total_approved_sounds": total_approved,
+        "remaining_stale_sounds": remaining,
     })
 
 
