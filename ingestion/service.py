@@ -362,6 +362,24 @@ def _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_resul
                     p.get("created_at"), p.get("thumbnail"), p.get("shares", 0),
                     sound_db_id, p.get("followers")
                 ))
+                # Daily snapshot — one row per post per day, upserted on every
+                # refresh so same-day re-ingests just update today's numbers
+                # rather than duplicating. This is what makes true
+                # tier-crossing detection possible (comparing today's likes
+                # to yesterday's), instead of only being able to say "this
+                # post is new AND already high" without knowing whether it
+                # crossed a threshold today specifically.
+                c.execute("""
+                    INSERT INTO post_snapshots (post_id, date, views, likes, comments, shares)
+                    VALUES (%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (post_id, date) DO UPDATE SET
+                        views=EXCLUDED.views, likes=EXCLUDED.likes,
+                        comments=EXCLUDED.comments, shares=EXCLUDED.shares
+                """, (
+                    p["post_id"], today,
+                    p.get("views", 0), p.get("likes", 0),
+                    p.get("comments", 0), p.get("shares", 0)
+                ))
                 added += 1
         conn.commit()
     return added
