@@ -167,7 +167,7 @@
     background: var(--border-light); color: var(--text-secondary); margin-left: 6px;
   }
   .pending-actions { display: flex; gap: 6px; flex-shrink: 0; }
-  .btn-approve, .btn-reject {
+  .btn-approve, .btn-reject, .btn-preview {
     font-size: 12px; font-family: inherit; font-weight: 600;
     padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer;
   }
@@ -175,7 +175,23 @@
   .btn-approve:hover { background: var(--success); color: white; }
   .btn-reject { background: var(--danger-bg); color: var(--danger); }
   .btn-reject:hover { background: var(--danger); color: white; }
-  .btn-approve:disabled, .btn-reject:disabled { opacity: .5; cursor: default; }
+  .btn-preview { background: var(--accent-light); color: var(--accent); }
+  .btn-preview:hover { background: var(--accent); color: white; }
+  .btn-approve:disabled, .btn-reject:disabled, .btn-preview:disabled { opacity: .5; cursor: default; }
+
+  .preview-strip { display: flex; gap: 8px; padding: 0 18px 14px; flex-wrap: wrap; }
+  .preview-thumb {
+    display: block; width: 72px; aspect-ratio: 9/16; border-radius: 8px;
+    overflow: hidden; background: var(--border-light); text-decoration: none;
+    position: relative; border: 1px solid var(--border);
+  }
+  .preview-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .preview-thumb .preview-views {
+    position: absolute; bottom: 3px; left: 3px; right: 3px;
+    font-size: 9px; font-weight: 700; color: white;
+    background: rgba(0,0,0,.6); border-radius: 4px; padding: 1px 4px; text-align: center;
+  }
+  .preview-loading { font-size: 12px; color: var(--text-muted); padding: 8px 18px; }
 
   .empty { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 14px; line-height: 1.8; }
   .loading { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 14px; }
@@ -471,17 +487,47 @@ function renderPendingPanel(pending) {
     return;
   }
   el.innerHTML = pending.map(s => `
-    <div class="pending-row" id="pending-row-${s.id}">
-      <div class="pending-info">
-        <div class="pending-title">${escapeHtml(s.title || 'Unknown sound')}<span class="pending-source-badge">${escapeHtml(s.discovered_via || 'unknown')}</span>${s.likely_match ? '<span class="pending-source-badge" style="background:var(--success-bg);color:var(--success);">✓ likely match</span>' : '<span class="pending-source-badge" style="background:var(--warning-bg);color:var(--warning);">⚠ needs review</span>'}</div>
-        <div class="pending-meta">${escapeHtml(s.author || '')} · ${fmt(s.current_video_count)} videos</div>
+    <div class="pending-row-wrap" id="pending-wrap-${s.id}">
+      <div class="pending-row" id="pending-row-${s.id}">
+        <div class="pending-info">
+          <div class="pending-title">${escapeHtml(s.title || 'Unknown sound')}<span class="pending-source-badge">${escapeHtml(s.discovered_via || 'unknown')}</span>${s.likely_match ? '<span class="pending-source-badge" style="background:var(--success-bg);color:var(--success);">✓ likely match</span>' : '<span class="pending-source-badge" style="background:var(--warning-bg);color:var(--warning);">⚠ needs review</span>'}</div>
+          <div class="pending-meta">${escapeHtml(s.author || '')} · ${fmt(s.current_video_count)} videos</div>
+        </div>
+        <div class="pending-actions">
+          <button class="btn-preview" id="preview-btn-${s.id}" onclick="previewSound(${s.id})">▶ Preview videos</button>
+          <button class="btn-approve" onclick="approvePending(${s.id})">Approve</button>
+          <button class="btn-reject" onclick="rejectPending(${s.id})">Reject</button>
+        </div>
       </div>
-      <div class="pending-actions">
-        <button class="btn-approve" onclick="approvePending(${s.id})">Approve</button>
-        <button class="btn-reject" onclick="rejectPending(${s.id})">Reject</button>
-      </div>
+      <div id="preview-strip-${s.id}"></div>
     </div>
   `).join('');
+}
+
+async function previewSound(soundDbId) {
+  const btn = document.getElementById(`preview-btn-${soundDbId}`);
+  const strip = document.getElementById(`preview-strip-${soundDbId}`);
+  btn.disabled = true;
+  btn.textContent = 'Loading...';
+  strip.innerHTML = '<div class="preview-loading">Fetching sample videos...</div>';
+  try {
+    const res = await fetch(`/api/sounds/${soundDbId}/preview_posts`);
+    const posts = res.ok ? await res.json() : [];
+    if (!posts.length) {
+      strip.innerHTML = '<div class="preview-loading">No videos found for this sound right now.</div>';
+    } else {
+      strip.innerHTML = '<div class="preview-strip">' + posts.map(p => `
+        <a class="preview-thumb" href="https://tiktok.com/@${escapeHtml(p.username)}/video/${escapeHtml(p.post_id)}" target="_blank" title="@${escapeHtml(p.username)}">
+          ${p.thumbnail ? `<img src="${escapeHtml(p.thumbnail)}" loading="lazy">` : ''}
+          <div class="preview-views">${fmt(p.views)}</div>
+        </a>
+      `).join('') + '</div>';
+    }
+  } catch (e) {
+    strip.innerHTML = '<div class="preview-loading">Could not load preview videos.</div>';
+  }
+  btn.disabled = false;
+  btn.textContent = '▶ Preview videos';
 }
 
 async function approvePending(soundDbId) {

@@ -235,6 +235,44 @@ def delete_song(song_id):
     return jsonify({"ok": True})
 
 
+@songs_bp.route("/api/sounds/<int:sound_db_id>/preview_posts")
+def preview_sound_posts(sound_db_id):
+    """Fetch a handful of sample posts for a PENDING sound directly from
+    the provider — read-only, nothing written to the database, not part
+    of the ingest pipeline. This exists specifically so a human reviewing
+    the Find New Sounds queue can actually watch/listen to real videos
+    using this sound before approving or rejecting it, instead of judging
+    from title/author text alone. Normal ingestion only pulls posts for
+    sounds that are ALREADY approved, so without this, a pending
+    candidate has zero videos attached to look at."""
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT sound_id FROM sounds WHERE id=%s", (sound_db_id,))
+            row = c.fetchone()
+            if not row:
+                return jsonify({"error": "Sound not found"}), 404
+
+    from ingestion.providers import default_provider as provider
+    from ingestion.parsers import parse_posts_from_music_page
+
+    try:
+        raw = provider.get_sound_posts_page(row["sound_id"], cursor=0, count=6)
+        posts, has_more, next_cursor = parse_posts_from_music_page(raw)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    preview = [
+        {
+            "post_id": p.get("post_id"),
+            "username": p.get("username"),
+            "thumbnail": p.get("thumbnail"),
+            "views": p.get("views", 0),
+        }
+        for p in posts[:6] if p.get("post_id") and p.get("username")
+    ]
+    return jsonify(preview)
+
+
 @songs_bp.route("/api/sounds/<int:sound_db_id>", methods=["DELETE"])
 def delete_sound(sound_db_id):
     with db() as conn:
