@@ -45,6 +45,8 @@
   select.status-select { font-family: inherit; font-size: 13px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text-primary); cursor: pointer; }
   .btn-danger { font-size: 13px; font-family: inherit; background: none; color: var(--danger); border: 1px solid var(--border); padding: 7px 14px; border-radius: 8px; cursor: pointer; }
   .btn-danger:hover { background: var(--danger-bg); border-color: var(--danger); }
+  .btn-neutral { font-size: 13px; font-family: inherit; background: none; color: var(--text-secondary); border: 1px solid var(--border); padding: 7px 14px; border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; }
+  .btn-neutral:hover { border-color: var(--accent); color: var(--accent); }
 
   .section-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
   .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px; }
@@ -52,7 +54,6 @@
   .stat-box .label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
   .stat-box .value { font-size: 28px; font-weight: 700; margin-top: 6px; letter-spacing: -0.5px; }
 
-  /* AI Recommendation */
   .ai-rec {
     background: var(--accent-light); border: 1px solid #c7d2fe;
     border-radius: 12px; padding: 18px 20px; margin-bottom: 28px;
@@ -61,7 +62,6 @@
   .ai-rec-text { font-size: 14px; line-height: 1.7; color: #3730a3; }
   .ai-rec-loading { font-size: 13px; color: var(--text-muted); font-style: italic; }
 
-  /* Momentum */
   .momentum-section { margin-bottom: 28px; }
   .momentum-list { display: flex; flex-direction: column; gap: 8px; }
   .momentum-row {
@@ -87,7 +87,6 @@
   .momentum-badge.hot { background: #fef3c7; color: #d97706; }
   .momentum-badge.growing { background: var(--success-bg); color: var(--success-text); }
 
-  /* Song cards */
   .add-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 20px; }
   .add-label { font-size: 13px; color: var(--text-secondary); margin-bottom: 10px; }
   .add-row { display: flex; gap: 8px; }
@@ -112,12 +111,10 @@
   .song-card .delete-btn:hover { background: var(--danger-bg); color: var(--danger); }
   .empty { padding: 48px; text-align: center; color: var(--text-muted); font-size: 14px; line-height: 1.6; }
 
-  /* Line chart */
   .chart-section { margin-bottom: 28px; }
   .chart-canvas-wrap { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
   canvas#trend-chart { width: 100% !important; height: 200px !important; }
 
-  /* Deals */
   .deals-section { margin-top: 32px; }
   .deals-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
   .deals-stat { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
@@ -160,6 +157,7 @@
       <div class="campaign-artist" id="campaign-artist"></div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;">
+      <a id="fanpages-link" href="#" class="btn-neutral">Fan Pages</a>
       <select class="status-select" id="status-select" onchange="updateStatus()">
         <option value="In Progress">In Progress</option>
         <option value="Wrapped">Wrapped</option>
@@ -176,7 +174,6 @@
     <div class="stat-box"><div class="label">Avg engagement</div><div class="value" id="stat-eng">-</div></div>
   </div>
 
-  <!-- Trend Chart -->
   <div class="chart-section">
     <div class="section-label">Views Over Time</div>
     <div class="chart-canvas-wrap">
@@ -184,15 +181,13 @@
     </div>
   </div>
 
-  <!-- Momentum -->
   <div class="momentum-section">
     <div class="section-label">Momentum This Week</div>
     <div class="momentum-list" id="momentum-list"></div>
   </div>
 
-  <!-- AI Recommendation -->
   <div class="ai-rec" id="ai-rec" style="display:none;">
-    <div class="ai-rec-header">✦ AI Campaign Insight</div>
+    <div class="ai-rec-header">Insight AI Campaign Insight</div>
     <div class="ai-rec-text" id="ai-rec-text"><span class="ai-rec-loading">Analyzing campaign data...</span></div>
   </div>
 
@@ -204,14 +199,13 @@
         <input type="text" id="song-name-input" placeholder="Song name, e.g. Griddle" style="flex:2;">
         <input type="text" id="song-artist-input" placeholder="Artist, e.g. Yeat" style="flex:1;">
         <button class="btn-primary" onclick="addSong()" id="add-song-btn">Add song</button>
-        <button id="sync-btn" onclick="syncNow()" style="font-size:13px;font-family:inherit;padding:9px 16px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text-secondary);cursor:pointer;white-space:nowrap;">↻ Sync</button>
+        <button id="sync-btn" onclick="syncNow()" style="font-size:13px;font-family:inherit;padding:9px 16px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text-secondary);cursor:pointer;white-space:nowrap;">Sync</button>
       </div>
     </div>
     <div id="add-song-error"></div>
     <div id="add-song-status"></div>
   </div>
   <div class="songs-grid" id="songs-grid"></div>
-  <!-- Creator Deals / ROI -->
   <div class="deals-section" id="deals-section" style="display:none;">
     <div class="section-label">Creator Investment & ROI</div>
     <div class="deals-summary" id="deals-summary"></div>
@@ -233,6 +227,7 @@
 
 <script>
 const campaignId = window.location.pathname.split('/').pop();
+document.getElementById('fanpages-link').href = '/campaign/' + campaignId + '/fanpages';
 let campaignData = null;
 let songsData = [];
 
@@ -310,7 +305,6 @@ function renderOverviewStats(posts) {
 }
 
 function renderTrendChart(posts) {
-  // Group posts by date and sum views
   const byDate = {};
   posts.forEach(function(p) {
     const date = (p.date || '').substring(0, 10);
@@ -370,7 +364,6 @@ function renderChart() {
   const container = document.getElementById('momentum-list');
   if (!songsData.length) { container.innerHTML = ''; return; }
 
-  // Sort by views_7d descending
   const sorted = [...songsData].sort(function(a, b) {
     return (parseInt(b.views_7d) || 0) - (parseInt(a.views_7d) || 0);
   });
@@ -395,7 +388,7 @@ function renderChart() {
       '</div>' +
       '<div class="momentum-stats">' +
         '<div>' +
-          '<div class="momentum-views">↑ ' + fmt(views7d) + '</div>' +
+          '<div class="momentum-views">' + fmt(views7d) + '</div>' +
           '<div class="momentum-views-label">views this week</div>' +
         '</div>' +
         '<div class="momentum-posts">+' + posts7d + ' posts</div>' +
@@ -411,7 +404,6 @@ function loadAIRecommendation() {
   const textEl = document.getElementById('ai-rec-text');
   recEl.style.display = 'block';
 
-  // Build prompt data from songs
   const songSummary = songsData.map(function(s) {
     return s.name + ': ' + fmt(s.total_views) + ' views, ' + (s.post_count || 0) + ' posts, ' +
       (s.posts_7d || 0) + ' new this week, ' + fmt(s.views_7d || 0) + ' views this week';
@@ -447,13 +439,13 @@ function renderSongs() {
     const weeklyViews = s.views_7d || 0;
     const weeklyPosts = s.posts_7d || 0;
     const weeklyBadge = weeklyViews > 0
-      ? '<span class="weekly-badge">\u2191 ' + fmt(weeklyViews) + ' this week</span>'
+      ? '<span class="weekly-badge">' + fmt(weeklyViews) + ' this week</span>'
       : '';
     const refreshed = s.last_refreshed
       ? '<div class="refresh-time">Updated ' + timeAgo(s.last_refreshed) + '</div>'
       : '';
     return '<div class="song-card" onclick="window.location.href=\'/song/' + s.id + '?from=' + campaignId + '\'">' +
-      '<button class="delete-btn" onclick="event.stopPropagation();deleteSong(' + s.id + ',\'' + escapeHtml(s.name) + '\')" title="Remove">\u00d7</button>' +
+      '<button class="delete-btn" onclick="event.stopPropagation();deleteSong(' + s.id + ',\'' + escapeHtml(s.name) + '\')" title="Remove">x</button>' +
       '<div class="name">' + escapeHtml(s.name) + '</div>' +
       '<div class="artist">' + escapeHtml(s.artist || '') + '</div>' +
       '<div class="views">' + fmt(s.total_views || 0) + weeklyBadge + '</div>' +
@@ -497,7 +489,6 @@ async function addSong() {
       input.value = '';
       if (artistInput) artistInput.value = '';
 
-      // vvv THIS IS THE NEW PART vvv
       statusEl.textContent = 'Added "' + name + '" — finding sounds and posts...';
       try {
         const refreshRes = await fetch('/api/songs/' + data.song_id + '/quick_refresh', {
@@ -515,7 +506,6 @@ async function addSong() {
         statusEl.textContent = 'Song added, but sync failed to reach the server — try Sync again.';
       }
       await load();
-      // ^^^ END NEW PART ^^^
     }
   } catch(e) {
     errEl.textContent = 'Could not reach the server.';
@@ -529,7 +519,7 @@ async function syncNow() {
   const btn = document.getElementById('sync-btn');
   const statusEl = document.getElementById('add-song-status');
   btn.disabled = true;
-  btn.textContent = '↻ Syncing...';
+  btn.textContent = 'Syncing...';
   statusEl.textContent = 'Refreshing posts for this campaign\'s songs...';
   try {
     for (const s of songsData) {
@@ -545,7 +535,7 @@ async function syncNow() {
     statusEl.textContent = 'Sync failed — try again.';
   }
   btn.disabled = false;
-  btn.textContent = '↻ Sync';
+  btn.textContent = 'Sync';
 }
 
 async function deleteSong(songId, songName) {
@@ -587,7 +577,7 @@ async function loadDeals() {
   const totalSpent = deals.reduce((s, d) => s + (d.amount_paid || 0), 0);
   const totalViews = deals.reduce((s, d) => s + (d.total_views || 0), 0);
   const avgCpv = totalViews > 0 ? totalSpent / totalViews : 0;
-  const industryAvg = 0.01; // $0.01 per view industry standard
+  const industryAvg = 0.01;
   const roi = industryAvg / avgCpv;
 
   document.getElementById('deals-section').style.display = 'block';
