@@ -157,7 +157,6 @@
       <div class="campaign-artist" id="campaign-artist"></div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;">
-      <a id="fanpages-link" href="#" class="btn-neutral">Fan Pages</a>
       <select class="status-select" id="status-select" onchange="updateStatus()">
         <option value="In Progress">In Progress</option>
         <option value="Wrapped">Wrapped</option>
@@ -227,7 +226,6 @@
 
 <script>
 const campaignId = window.location.pathname.split('/').pop();
-document.getElementById('fanpages-link').href = '/campaign/' + campaignId + '/fanpages';
 let campaignData = null;
 let songsData = [];
 

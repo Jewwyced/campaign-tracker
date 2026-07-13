@@ -1,13 +1,18 @@
 """
-routes_fan_tracker.py — the original, simplest tracking feature.
+routes_fan_tracker.py - the original, simplest tracking feature.
 
 A flat list of TikTok usernames (no artist grouping), each with daily
 follower/likes/video snapshots and recent posts. This predates the
 Artist Roster feature (routes_artists.py) and is kept separate since
 some data and routes still depend on this simpler shape.
+
+Now has a real page at /fanpages - global, not tied to any campaign,
+since a fan page keeps posting regardless of which specific campaign is
+currently active. That's a different, account-centric tracking unit
+from Songs/Sounds (post-centric), so it lives as its own top-level tab.
 """
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, render_template_string
 from ingestion import api as ingestion
 from db import db
 
@@ -28,7 +33,7 @@ def add():
             c.execute("INSERT INTO artists (username) VALUES (%s) ON CONFLICT DO NOTHING", (u,))
         conn.commit()
     if not fetch(u):
-        return jsonify({"error": f"Could not fetch @{u} — double check the username"}), 400
+        return jsonify({"error": f"Could not fetch @{u} - double check the username"}), 400
     return jsonify({"ok": True})
 
 
@@ -39,6 +44,17 @@ def remove():
         with conn.cursor() as c:
             c.execute("DELETE FROM artists WHERE username=%s", (u,))
         conn.commit()
+    return jsonify({"ok": True})
+
+
+@fan_tracker_bp.route("/api/refresh", methods=["POST"])
+def refresh():
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT username FROM artists")
+            artists = [r["username"] for r in c.fetchall()]
+    for a in artists:
+        fetch(a)
     return jsonify({"ok": True})
 
 
@@ -57,3 +73,8 @@ def data():
     for row in posts:
         row["date"] = str(row["date"])
     return jsonify({"stats": stats, "posts": posts, "artists": artists})
+
+
+@fan_tracker_bp.route("/fanpages")
+def fan_pages_page():
+    return render_template_string(open("fan_pages.html").read())

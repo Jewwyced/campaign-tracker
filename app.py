@@ -139,13 +139,6 @@ def create_schema():
                     posts_added INT,
                     error TEXT
                 );
-                CREATE TABLE IF NOT EXISTS campaign_fan_pages (
-                    id SERIAL PRIMARY KEY,
-                    campaign_id INT REFERENCES campaigns(id) ON DELETE CASCADE,
-                    username TEXT NOT NULL,
-                    added_at TIMESTAMP DEFAULT NOW(),
-                    UNIQUE(campaign_id, username)
-                );
             """)
         conn.commit()
 
@@ -303,7 +296,6 @@ from routes_campaigns import campaigns_bp
 from routes_sounds import sounds_bp
 from routes_dashboard import dashboard_bp
 from routes_refresh import refresh_bp
-from routes_fan_pages import fan_pages_bp
 
 app.register_blueprint(fan_tracker_bp)
 app.register_blueprint(artists_bp)
@@ -312,7 +304,6 @@ app.register_blueprint(campaigns_bp)
 app.register_blueprint(sounds_bp)
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(refresh_bp)
-app.register_blueprint(fan_pages_bp)
 
 
 @app.route("/api/debug/hierarchy")

@@ -24,56 +24,65 @@
   header { display: flex; align-items: center; padding: 0 32px; border-bottom: 1px solid var(--border); height: 52px; background: white; }
   header .nav a { font-size: 13px; color: var(--text-secondary); text-decoration: none; margin-right: 20px; }
   header .nav a:hover { color: var(--text-primary); }
+  header .nav a.active { color: var(--text-primary); font-weight: 600; border-bottom: 2px solid var(--accent); padding-bottom: 2px; }
   main { padding: 32px; max-width: 1200px; margin: 0 auto; }
-  .breadcrumb { font-size: 13px; margin-bottom: 20px; }
-  .breadcrumb a { color: var(--text-muted); text-decoration: none; }
-  .breadcrumb a:hover { color: var(--text-primary); }
 
   .page-title { font-size: 26px; font-weight: 800; letter-spacing: -0.6px; margin-bottom: 24px; }
 
-  .add-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 24px; }
-  .add-label { font-size: 13px; color: var(--text-secondary); margin-bottom: 10px; }
-  .add-row { display: flex; gap: 8px; }
-  input[type=text] { flex: 1; font-family: inherit; font-size: 14px; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text-primary); }
+  .add-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 24px; display: flex; gap: 8px; align-items: center; }
+  .add-card span.lbl { font-size: 13px; color: var(--text-secondary); white-space: nowrap; margin-right: 2px; }
+  input[type=text] { flex: 1; max-width: 280px; font-family: inherit; font-size: 14px; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text-primary); }
   input[type=text]:focus { outline: none; border-color: var(--accent); }
   button.btn-primary { font-size: 13px; font-family: inherit; background: var(--accent); color: white; border: none; padding: 9px 16px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
   button.btn-primary:hover { background: #4f46e5; }
   button.btn-primary:disabled { background: var(--text-muted); cursor: default; }
   button.btn-secondary { font-size: 13px; font-family: inherit; background: none; color: var(--text-secondary); border: 1px solid var(--border); padding: 9px 16px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
   button.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
-  #add-error { font-size: 13px; color: var(--danger); margin-top: 10px; }
-  #add-status { font-size: 13px; color: var(--text-muted); margin-top: 8px; }
+  #msg { font-size: 13px; color: var(--text-muted); }
 
-  .section-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-
-  .fanpage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .fanpage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-bottom: 32px; }
   .fanpage-card { background: white; border: 1px solid var(--border); border-radius: 14px; padding: 18px; position: relative; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
   .fanpage-card:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(99,102,241,.08); }
-  .fanpage-card .username { font-size: 15px; font-weight: 700; padding-right: 24px; }
-  .fanpage-card .followers { font-size: 24px; font-weight: 800; margin-top: 10px; letter-spacing: -0.5px; }
+  .fanpage-card.active { border-color: var(--accent); background: var(--accent-light); }
+  .fanpage-card .username { font-size: 14px; font-weight: 700; padding-right: 22px; }
+  .fanpage-card .followers { font-size: 22px; font-weight: 800; margin-top: 10px; letter-spacing: -0.5px; }
   .fanpage-card .delta { font-size: 12px; font-weight: 600; margin-top: 3px; }
   .fanpage-card .delta.up { color: var(--success); }
   .fanpage-card .delta.down { color: var(--danger); }
   .fanpage-card .delta.flat { color: var(--text-muted); }
-  .fanpage-card .meta { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
-  .fanpage-card .remove-btn { position: absolute; top: 12px; right: 12px; width: 24px; height: 24px; border-radius: 6px; background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .fanpage-card .remove-btn { position: absolute; top: 12px; right: 10px; width: 22px; height: 22px; border-radius: 6px; background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
   .fanpage-card .remove-btn:hover { background: var(--danger-bg); color: var(--danger); }
 
   .empty { padding: 48px; text-align: center; color: var(--text-muted); font-size: 14px; line-height: 1.6; background: white; border: 1px solid var(--border); border-radius: 12px; }
   .loading { padding: 40px; text-align: center; color: var(--text-muted); font-size: 14px; }
 
-  /* Detail panel */
-  #detail { display: none; margin-top: 28px; }
-  .detail-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-  .detail-title { font-size: 18px; font-weight: 700; }
-  .posts-table { width: 100%; border-collapse: collapse; background: white; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; font-size: 13px; }
-  .posts-table th { text-align: left; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .4px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--bg); }
-  .posts-table td { padding: 10px 14px; border-bottom: 1px solid var(--border-light); }
-  .posts-table tr:last-child td { border-bottom: none; }
-  .posts-table tr:hover td { background: var(--bg); }
-  .posts-table .desc { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
-  .posts-table a { color: var(--accent); text-decoration: none; font-weight: 600; }
-  .posts-table a:hover { text-decoration: underline; }
+  .hot-section { margin-bottom: 32px; }
+  .section-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
+  .hot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+  .hot-card { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 12px; cursor: pointer; transition: border-color .15s; }
+  .hot-card:hover { border-color: var(--accent); }
+  .hot-card .hu { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+  .hot-card .hd { font-size: 12px; color: var(--text-primary); margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; min-height: 32px; }
+  .hot-card .hstats { display: flex; justify-content: space-between; align-items: center; }
+  .hot-card .hviews { font-size: 15px; font-weight: 800; color: var(--success); }
+  .hot-card .hmult { font-size: 10px; font-weight: 700; color: #d97706; background: #fef3c7; padding: 2px 6px; border-radius: 5px; }
+
+  #detail { display: none; margin-top: 8px; }
+  .dhead { margin-bottom: 16px; display: flex; align-items: center; gap: 14px; }
+  .dhead h2 { font-size: 18px; font-weight: 700; }
+  .tiktok-link { color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 600; }
+  .tiktok-link:hover { text-decoration: underline; }
+  .srow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .sbox { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .sbox .l { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
+  .sbox .v { font-size: 22px; font-weight: 800; margin-top: 5px; letter-spacing: -0.5px; }
+  table { width: 100%; border-collapse: collapse; background: white; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; font-size: 13px; }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border-light); }
+  th { background: var(--bg); color: var(--text-muted); font-size: 11px; text-transform: uppercase; font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg); }
+  .desc { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
+  .badge { display: inline-block; background: var(--success-bg); color: var(--success); font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 5px; margin-left: 6px; }
 </style>
 </head>
 <body>
@@ -84,168 +93,181 @@
     <a href="/songs">Songs</a>
     <a href="/artists">Artists</a>
     <a href="/sounds">Sound lookup</a>
+    <a href="/fanpages" class="active">Fan Pages</a>
   </div>
 </header>
-
 <main>
-  <div class="breadcrumb"><a href="#" id="breadcrumb-link">← Back to campaign</a></div>
   <div class="page-title">Fan Pages</div>
 
   <div class="add-card">
-    <div class="add-label">Track a fan page — we'll pull their follower growth and recent posts.</div>
-    <div class="add-row">
-      <input type="text" id="username-input" placeholder="TikTok username, no @">
-      <button class="btn-primary" onclick="addFanPage()" id="add-btn">+ Add</button>
-      <button class="btn-secondary" onclick="refreshAll()" id="refresh-btn">↻ Refresh All</button>
-    </div>
-    <div id="add-error"></div>
-    <div id="add-status"></div>
+    <span class="lbl">Track a page:</span>
+    <input type="text" id="inp" placeholder="TikTok username, no @">
+    <button class="btn-primary" onclick="addArtist()" id="abtn">+ Add</button>
+    <button class="btn-secondary" onclick="refreshAll()" id="rbtn">Refresh All</button>
+    <span id="msg"></span>
   </div>
 
-  <div class="fanpage-grid" id="fanpage-grid"><div class="loading">Loading...</div></div>
+  <div class="hot-section" id="hot-section" style="display:none;">
+    <div class="section-label">Today's Posts</div>
+    <div class="hot-grid" id="hot-grid"></div>
+  </div>
+
+  <div class="section-label">Tracked Pages</div>
+  <div class="fanpage-grid" id="grid"><div class="loading">Loading...</div></div>
 
   <div id="detail">
-    <div class="detail-header">
-      <div class="detail-title" id="detail-title"></div>
-      <a id="detail-link" href="#" target="_blank" class="btn-secondary" style="text-decoration:none;display:inline-block;">View on TikTok ↗</a>
+    <div class="dhead"><h2 id="dname"></h2><a id="dlink" href="#" target="_blank" class="tiktok-link">View on TikTok</a></div>
+    <div class="srow">
+      <div class="sbox"><div class="l">Followers</div><div class="v" id="df">-</div></div>
+      <div class="sbox"><div class="l">Total Likes</div><div class="v" id="dl">-</div></div>
+      <div class="sbox"><div class="l">Videos</div><div class="v" id="dv">-</div></div>
+      <div class="sbox"><div class="l">Avg Views</div><div class="v" id="da">-</div></div>
     </div>
-    <table class="posts-table">
-      <thead>
-        <tr><th>Date</th><th>Description</th><th>Views</th><th>Likes</th><th>Comments</th><th>Followers at Post</th></tr>
-      </thead>
-      <tbody id="posts-tbody"></tbody>
+    <div class="section-label">Recent Posts</div>
+    <table>
+      <thead><tr><th>Date</th><th>Description</th><th>Followers at Post</th><th>Views</th><th>Likes</th><th>Comments</th></tr></thead>
+      <tbody id="ptb"></tbody>
     </table>
   </div>
 </main>
-
 <script>
-const campaignId = window.location.pathname.split('/')[2];
-document.getElementById('breadcrumb-link').href = '/campaign/' + campaignId;
-
-function fmt(n) {
-  if (n == null || isNaN(n)) return '-';
-  if (n >= 1e9) return (n/1e9).toFixed(1) + 'B';
-  if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
-  if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
-  return String(n);
-}
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str || '';
-  return div.innerHTML;
-}
-function formatDate(ts) {
-  if (!ts) return '-';
-  return new Date(parseInt(ts) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
+let D = null, active = null;
+const fmt = n => n == null || isNaN(n) ? '-' : n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(n);
 
 async function load() {
-  const grid = document.getElementById('fanpage-grid');
-  const res = await fetch(`/api/campaigns/${campaignId}/fan_pages`);
-  const fanPages = res.ok ? await res.json() : [];
+  try {
+    D = await (await fetch('/api/data')).json();
+    render();
+    renderHot();
+  } catch (e) {
+    document.getElementById('grid').innerHTML = '<div class="empty">Could not reach server.</div>';
+  }
+}
 
-  if (!fanPages.length) {
+function renderHot() {
+  const section = document.getElementById('hot-section');
+  const grid = document.getElementById('hot-grid');
+  grid.innerHTML = '';
+
+  const todayStart = new Date();
+  todayStart.setHours(0,0,0,0);
+  const todayStartSec = todayStart.getTime()/1000;
+
+  const todays = [];
+  D.artists.forEach(u => {
+    const allPosts = D.posts.filter(p => p.username === u);
+    if (!allPosts.length) return;
+    const avg = allPosts.reduce((a,p) => a+(p.views||0), 0) / allPosts.length;
+    allPosts.filter(p => (p.created_at||0) >= todayStartSec).forEach(p => {
+      todays.push(Object.assign({}, p, {avg: avg, mult: avg > 0 ? p.views/avg : 0}));
+    });
+  });
+
+  if (!todays.length) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  todays.sort((a,b) => b.views - a.views);
+  todays.slice(0, 9).forEach(p => {
+    const hot = p.mult >= 2;
+    const card = document.createElement('div');
+    card.className = 'hot-card';
+    card.innerHTML =
+      '<div class="hu">@' + p.username + '</div>' +
+      '<div class="hd" title="' + (p.description||'').replace(/"/g,'') + '">' + (p.description || '(no caption)') + '</div>' +
+      '<div class="hstats">' +
+        '<div class="hviews">' + fmt(p.views) + ' views</div>' +
+        (hot ? '<div class="hmult">Hot ' + p.mult.toFixed(1) + 'x avg</div>' : '') +
+      '</div>';
+    card.onclick = function() { window.open('https://www.tiktok.com/@' + p.username + '/video/' + p.post_id, '_blank'); };
+    grid.appendChild(card);
+  });
+}
+
+function render() {
+  const grid = document.getElementById('grid');
+  if (!D.artists.length) {
     grid.innerHTML = '<div class="empty">No fan pages tracked yet.<br><span style="font-size:13px;">Add one above to get started.</span></div>';
     return;
   }
-
-  grid.innerHTML = fanPages.map(f => {
-    const delta = f.followers_delta;
+  grid.innerHTML = '';
+  D.artists.forEach(function(u) {
+    const rows = D.stats.filter(function(r) { return r.username === u; }).sort(function(a,b) { return b.date.localeCompare(a.date); });
+    const lat = rows[0], prev = rows[1];
+    const delta = (lat && prev && lat.followers != null && prev.followers != null) ? lat.followers - prev.followers : null;
+    const card = document.createElement('div');
+    card.className = 'fanpage-card' + (active === u ? ' active' : '');
     const deltaClass = delta == null ? 'flat' : delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
-    const deltaText = delta == null ? '—' : delta > 0 ? '+' + fmt(delta) + ' today' : delta < 0 ? fmt(delta) + ' today' : 'No change';
-    return `<div class="fanpage-card" onclick="showDetail('${escapeHtml(f.username)}')">
-      <button class="remove-btn" onclick="event.stopPropagation();removeFanPage('${escapeHtml(f.username)}')" title="Remove">×</button>
-      <div class="username">@${escapeHtml(f.username)}</div>
-      <div class="followers">${fmt(f.followers)}</div>
-      <div class="delta ${deltaClass}">${deltaText}</div>
-      <div class="meta">${f.post_count} posts tracked · ${fmt(f.avg_views)} avg views</div>
-    </div>`;
-  }).join('');
+    const deltaText = delta == null ? '-' : delta > 0 ? '+' + fmt(delta) + ' today' : delta < 0 ? fmt(delta) + ' today' : 'No change';
+    card.innerHTML =
+      '<button class="remove-btn" onclick="rm(\'' + u + '\', event)" title="Remove">x</button>' +
+      '<div class="username">@' + u + '</div>' +
+      '<div class="followers">' + fmt(lat ? lat.followers : null) + '</div>' +
+      '<div class="delta ' + deltaClass + '">' + deltaText + '</div>';
+    card.onclick = function(e) { if (e.target.classList.contains('remove-btn')) return; show(u); };
+    grid.appendChild(card);
+  });
 }
 
-async function showDetail(username) {
+function show(u) {
+  active = u; render();
   document.getElementById('detail').style.display = 'block';
-  document.getElementById('detail-title').textContent = '@' + username;
-  document.getElementById('detail-link').href = 'https://www.tiktok.com/@' + username;
-
-  const res = await fetch(`/api/campaigns/${campaignId}/fan_pages/${username}/posts`);
-  const posts = res.ok ? await res.json() : [];
-  const tbody = document.getElementById('posts-tbody');
-  if (!posts.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:24px;">No posts yet — try Refresh All.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = posts.map(p => `
-    <tr>
-      <td><a href="https://www.tiktok.com/@${escapeHtml(username)}/video/${escapeHtml(p.post_id)}" target="_blank">${formatDate(p.created_at)} ↗</a></td>
-      <td class="desc" title="${escapeHtml(p.description || '')}">${escapeHtml(p.description || '-')}</td>
-      <td>${fmt(p.views)}</td>
-      <td>${fmt(p.likes)}</td>
-      <td>${fmt(p.comments)}</td>
-      <td>${fmt(p.followers_at_post)}</td>
-    </tr>
-  `).join('');
-
+  document.getElementById('dname').textContent = '@' + u;
+  document.getElementById('dlink').href = 'https://www.tiktok.com/@' + u;
+  const rows = D.stats.filter(function(r) { return r.username === u; }).sort(function(a,b) { return b.date.localeCompare(a.date); });
+  const lat = rows[0];
+  document.getElementById('df').textContent = fmt(lat ? lat.followers : null);
+  document.getElementById('dl').textContent = fmt(lat ? lat.likes : null);
+  document.getElementById('dv').textContent = fmt(lat ? lat.videos : null);
+  const posts = D.posts.filter(function(p) { return p.username === u; }).sort(function(a,b) { return (b.created_at||0)-(a.created_at||0); });
+  const avg = posts.length ? posts.reduce(function(a,p) { return a+(p.views||0); }, 0) / posts.length : 0;
+  document.getElementById('da').textContent = fmt(Math.round(avg));
+  const tb = document.getElementById('ptb');
+  if (!posts.length) { tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:24px;">No posts yet - hit Refresh All.</td></tr>'; return; }
+  tb.innerHTML = posts.map(function(p) {
+    const hot = avg > 0 && p.views >= 2*avg;
+    const d = p.created_at ? new Date(p.created_at*1000).toLocaleDateString() : p.date;
+    return '<tr>' +
+      '<td><a class="tiktok-link" href="https://www.tiktok.com/@' + u + '/video/' + p.post_id + '" target="_blank">' + d + '</a></td>' +
+      '<td class="desc" title="' + (p.description||'').replace(/"/g,'') + '">' + (p.description || '-') + '</td>' +
+      '<td>' + fmt(p.followers_at_post) + '</td>' +
+      '<td>' + fmt(p.views) + (hot ? '<span class="badge">2x</span>' : '') + '</td>' +
+      '<td>' + fmt(p.likes) + '</td>' +
+      '<td>' + fmt(p.comments) + '</td>' +
+      '</tr>';
+  }).join('');
   document.getElementById('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-async function addFanPage() {
-  const input = document.getElementById('username-input');
-  const btn = document.getElementById('add-btn');
-  const errEl = document.getElementById('add-error');
-  const statusEl = document.getElementById('add-status');
-  const username = input.value.trim().replace(/^@/, '');
-  if (!username) return;
-  btn.disabled = true;
-  btn.textContent = 'Adding...';
-  errEl.textContent = '';
-  statusEl.textContent = 'Fetching from TikTok...';
-  try {
-    const res = await fetch(`/api/campaigns/${campaignId}/fan_pages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username })
-    });
-    const data = await res.json();
-    if (!res.ok || data.ok === false) {
-      errEl.textContent = data.error || 'Something went wrong.';
-      statusEl.textContent = '';
-    } else {
-      input.value = '';
-      statusEl.textContent = `Added @${username}.`;
-      await load();
-    }
-  } catch (e) {
-    errEl.textContent = 'Could not reach the server.';
-  }
-  btn.disabled = false;
-  btn.textContent = '+ Add';
+async function addArtist() {
+  const inp = document.getElementById('inp'), msg = document.getElementById('msg'), btn = document.getElementById('abtn');
+  const u = inp.value.trim().replace(/^@/, '');
+  if (!u) return;
+  btn.disabled = true; btn.textContent = 'Adding...';
+  msg.textContent = 'Fetching from TikTok...'; msg.style.color = 'var(--text-muted)';
+  const r = await fetch('/api/add', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({username: u}) });
+  const j = await r.json();
+  if (!r.ok) { msg.textContent = j.error || 'Error'; msg.style.color = 'var(--danger)'; }
+  else { inp.value = ''; msg.textContent = ''; await load(); }
+  btn.disabled = false; btn.textContent = '+ Add';
 }
 
-async function removeFanPage(username) {
-  if (!confirm(`Stop tracking @${username}? (Historical data is kept, just untracked from this campaign.)`)) return;
-  await fetch(`/api/campaigns/${campaignId}/fan_pages/${username}`, { method: 'DELETE' });
-  document.getElementById('detail').style.display = 'none';
+async function rm(u, e) {
+  e.stopPropagation();
+  if (!confirm('Remove @' + u + '?')) return;
+  await fetch('/api/remove', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({username: u}) });
+  if (active === u) { active = null; document.getElementById('detail').style.display = 'none'; }
   await load();
 }
 
 async function refreshAll() {
-  const btn = document.getElementById('refresh-btn');
-  btn.disabled = true;
-  btn.textContent = 'Refreshing...';
-  try {
-    const res = await fetch(`/api/campaigns/${campaignId}/fan_pages/refresh`, { method: 'POST' });
-    const data = await res.json();
-    btn.textContent = data.ok ? `✓ Refreshed ${data.refreshed}/${data.total}` : '↻ Refresh All';
-  } catch (e) {
-    btn.textContent = '↻ Refresh All';
-  }
-  setTimeout(() => { btn.textContent = '↻ Refresh All'; btn.disabled = false; }, 2000);
+  const btn = document.getElementById('rbtn');
+  btn.disabled = true; btn.textContent = 'Refreshing...';
+  await fetch('/api/refresh', { method: 'POST' });
   await load();
+  btn.disabled = false; btn.textContent = 'Refresh All';
 }
 
-document.getElementById('username-input').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') addFanPage();
+document.getElementById('inp').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') addArtist();
 });
 
 load();
