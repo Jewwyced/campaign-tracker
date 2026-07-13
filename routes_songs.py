@@ -44,15 +44,25 @@ def songs_collection():
                 song_id = c.fetchone()["id"]
             conn.commit()
 
-        # Discover sounds — store as pending, cron handles qualify + monitor
-        print(f"[DEBUG] POST /api/songs discovering song_id={song_id} name={name!r} artist={artist!r}", flush=True)
-        results = ingestion.ingest_song_sounds(db, song_id, name, artist)
-        sounds_found = len(results) if results else 0
-
+        # IMPORTANT: this used to also call ingestion.ingest_song_sounds()
+        # (a separate, older discovery implementation living in
+        # ingestion/api.py, never touched by this session's rebuild) right
+        # here at creation time. That ran in addition to, and before, the
+        # new discover_song_sounds() pipeline that quick_refresh triggers
+        # right after — meaning every new song was silently discovered
+        # TWICE, once by old un-capped/unfiltered logic and once by the
+        # new capped/filtered one. That's confirmed by the numbers not
+        # adding up: Griddle showed 38 total persisted sounds despite
+        # discover_song_sounds reporting only 30 discovered; Back Home
+        # showed 48 vs 30. Per the discovery/refresh/find_new_sounds
+        # architecture this session settled on, song CREATION should not
+        # discover anything at all — only initialize_song (triggered via
+        # quick_refresh) or find_new_sounds should ever call discovery.
+        # The frontend is expected to call quick_refresh right after this
+        # returns, same as it already does.
         return jsonify({
             "ok": True,
             "song_id": song_id,
-            "sounds_found": sounds_found,
         })
 
     with db() as conn:
