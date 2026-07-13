@@ -1,246 +1,213 @@
 """
-test_sound_matching.py — regression tests for _classify_sound_match().
+test_sound_matching.py — regression tests for _classify_sound_match(),
+_artist_signal(), and _is_plausible_candidate().
 
 WHY THIS FILE EXISTS:
-This classifier has been fixed forward three times in one session — each
-fix correctly handled the case that had just broken, but silently
-reintroduced or left unguarded a DIFFERENT case that had already been
-fixed before:
+This classifier has been fixed forward many times in one session — each
+fix correctly handled the case that had just broken, but several times
+silently reintroduced or left unguarded a DIFFERENT case that had already
+been fixed before. Full history:
 
   1. Loose substring/"original sound" auto-pass -> approved huge amounts
      of unrelated junk.
-  2. Summed score threshold -> fixed (1), but let a single strong signal
-     (exact title match) approve regardless of artist. Broke on common
-     titles: "Thong Song" approved Sisqo's original under a PlaqueBoyMax
-     search.
-  3. Mandatory artist match whenever an artist is on file -> fixed (2),
-     but over-corrected: TikTok author metadata is often just an
-     uploader's handle ("original sound - maxfanpage"), not a credited
-     artist, so a real match got rejected for having no textual artist
-     signal at all.
-  4. Tiered check, artist match ALONE sufficient for Tier 1 -> fixed (3),
-     but broke again: an artist can have multiple songs. A search for
-     "Thong Song" by PlaqueBoyMax approved "Pink Dreads" by the same
-     artist, because artist match alone doesn't say WHICH song this is.
-  5. Current: Tier 1 requires artist match AND a real title relation.
+  2. Summed relevance SCORE with a threshold -> a single strong signal
+     (exact title match) could approve regardless of artist. "Thong Song"
+     approved Sisqo's original under a PlaqueBoyMax search.
+  3. Mandatory artist match whenever an artist is on file -> over-corrected:
+     TikTok author metadata is often just an uploader's handle
+     ("original sound - maxfanpage"), not a credited artist, so real
+     matches got rejected for having no textual artist signal at all.
+  4. Tiered check, artist match ALONE sufficient for Tier 1 -> an artist
+     can have multiple songs. "Thong Song" by PlaqueBoyMax approved
+     "Pink Dreads" by the same artist, since artist match alone doesn't
+     say WHICH song this is. Fixed: Tier 1 requires artist AND title
+     together.
+  5. Tier 2 added: popularity-only approval for generic uploads with no
+     artist signal, gated to sounds discovered via a "broad" hashtag/
+     challenge crawl vs a "targeted" search -> STILL broke: "Griddle"
+     collided with an unrelated dance trend, and the challenge crawl
+     pulled in 33 false positives with multi-million view counts.
+  6. Tier 2 narrowed further: only trust popularity for candidates from
+     discovered_via == 'title_artist' specifically (the combined title+
+     artist search) -> STILL broke: Back Home approved "TikTok
+     Advertiser" and a Tyler the Creator fan account purely on video
+     count, proving even the "trusted" targeted search doesn't reliably
+     require real co-occurrence on TikTok's end.
+  7. Tier 2 REMOVED ENTIRELY (second time, this version) — confirmed
+     unreliable across two different discovery sources; popularity is
+     never trusted as a substitute for a real artist match, full stop.
+  8. Separately: _artist_signal's plain substring check broke on short/
+     common artist names. "Yeat" (4 chars) matched inside "bells_yeat"
+     (a fan handle), incorrectly passing Tier 1. Fixed with a length-
+     ratio requirement (ARTIST_SIGNAL_MIN_RATIO) — the artist name must
+     make up at least 50% of the author string, not just appear in it.
 
-Run this file (`python test_sound_matching.py`) before shipping ANY future
-change to _classify_sound_match, _artist_signal, or _score_sound. It
-checks every real case above simultaneously, so a fix for a new problem
-can't silently re-break an old one without you finding out immediately.
-
-Usage:
-    python test_sound_matching.py
-
-Exits 0 if all cases pass, 1 if any fail (with a printed diff of which
-cases broke and why) — safe to wire into a pre-deploy check.
+Run this file (`python test_sound_matching.py`) before shipping ANY
+future change to the matching/discovery-filter logic. It checks every
+real case above simultaneously, so a fix for a new problem can't
+silently re-break an old one without you finding out immediately.
 """
 
 import sys
 import os
 
-# Adjust this import path to match your actual project layout.
-# Assumes this file sits at the project root, next to the `ingestion/` package.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ingestion.service import _classify_sound_match, TIER2_VIDEO_COUNT_THRESHOLD
+from ingestion.service import (
+    _classify_sound_match,
+    _artist_signal,
+    _is_plausible_candidate,
+    _normalize_str,
+    ARTIST_SIGNAL_MIN_RATIO,
+)
 
 
-# Each case: (sound_title, sound_author, song_title, song_artist, video_count,
-#             expected, description)
-CASES = [
-    # ── Real, exact matches — should always approve ──────────────────────
-    (
-        "ski slopes", "Lex Amarni",
-        "Ski Slopes", "Lex Amarni",
-        5541, True,
-        "Exact title + exact artist match — the original Ski Slopes bug case"
-    ),
-    (
-        "Thong Song", "PlaqueBoyMax",
-        "Thong Song", "PlaqueBoyMax",
-        2000, True,
-        "Exact title + exact artist match — the correct Thong Song sound"
-    ),
-    (
-        "Pink Dreads", "DDG & PlaqueBoyMax",
-        "Pink Dreads", "PlaqueBoyMax",
-        138845, True,
-        "Exact title + artist present in a multi-artist author field"
-    ),
+# ── _classify_sound_match cases ──────────────────────────────────────────
+# (sound_title, sound_author, song_title, song_artist, video_count,
+#  discovered_via, expected, description)
+CLASSIFY_CASES = [
+    # Real, exact matches — should always approve
+    ("ski slopes", "Lex Amarni", "Ski Slopes", "Lex Amarni", 5541, None, True,
+     "Exact title + exact artist match — the original Ski Slopes bug case"),
+    ("Thong Song", "PlaqueBoyMax", "Thong Song", "PlaqueBoyMax", 2000, None, True,
+     "Exact title + exact artist match — the correct Thong Song sound"),
+    ("Pink Dreads", "DDG & PlaqueBoyMax", "Pink Dreads", "PlaqueBoyMax", 138845, None, True,
+     "Exact title + artist present in a multi-artist author field"),
+    ("Back Home", "Yeat & Joji", "Back Home", "Yeat", 7024, None, True,
+     "The real Back Home sound — artist embedded alongside a collaborator"),
 
-    # ── Same artist, DIFFERENT song — must reject (Tier 1 over-broad bug) ─
-    (
-        "pink dreads", "DDG & PlaqueBoyMax",
-        "Thong Song", "PlaqueBoyMax",
-        138845, False,
-        "REGRESSION: Pink Dreads must NOT match a Thong Song search just "
-        "because PlaqueBoyMax is in the author field — artist match alone "
-        "doesn't say which song this is"
-    ),
+    # Same artist, DIFFERENT song — must reject
+    ("pink dreads", "DDG & PlaqueBoyMax", "Thong Song", "PlaqueBoyMax", 138845, None, False,
+     "Pink Dreads must NOT match a Thong Song search just because "
+     "PlaqueBoyMax is in the author field"),
 
-    # ── Same title, DIFFERENT credited artist — must reject (score-sum bug) ─
-    (
-        "Thong Song", "Sisqo",
-        "Thong Song", "PlaqueBoyMax",
-        4557, False,
-        "REGRESSION: Sisqo's original Thong Song must NOT match a "
-        "PlaqueBoyMax Thong Song search just because the title is identical"
-    ),
-    (
-        "Thong Song (Re-Recorded)", "Sisqó",
-        "Thong Song", "PlaqueBoyMax",
-        558, False,
-        "Same as above with a re-recorded/derivative variant"
-    ),
-    (
-        "Thong Song (with Sisqo)", "Joezi & ADAME (US) & Sisqó",
-        "Thong Song", "PlaqueBoyMax",
-        90, False,
-        "Collab title mentioning the song name but crediting different artists"
-    ),
+    # Same title, DIFFERENT credited artist — must reject
+    ("Thong Song", "Sisqo", "Thong Song", "PlaqueBoyMax", 4557, None, False,
+     "Sisqo's original Thong Song must NOT match a PlaqueBoyMax search"),
+    ("Thong Song (Re-Recorded)", "Sisqó", "Thong Song", "PlaqueBoyMax", 558, None, False,
+     "Re-recorded/derivative variant, still wrong artist"),
+    ("Thong Song (with Sisqo)", "Joezi & ADAME (US) & Sisqó", "Thong Song", "PlaqueBoyMax", 90, None, False,
+     "Collab title mentioning the song name but crediting different artists"),
 
-    # ── Generic uploads, no artist signal — Tier 2 depends on popularity ──
-    (
-        "original sound - maxfanpage", "maxfanpage",
-        "Thong Song", "PlaqueBoyMax",
-        TIER2_VIDEO_COUNT_THRESHOLD + 1, True,
-        "REGRESSION: generic upload with no artist signal but huge traction "
-        "and exact title match should be approved (Tier 2) — this was "
-        "wrongly rejected when artist match was made mandatory"
-    ),
-    (
-        "original sound - maxfanpage", "maxfanpage",
-        "Thong Song", "PlaqueBoyMax",
-        50, False,
-        "Same generic upload but LOW traction — not enough evidence, reject"
-    ),
-    (
-        "original sound - user382920", "user382920",
-        "Thong Song", "PlaqueBoyMax",
-        TIER2_VIDEO_COUNT_THRESHOLD, True,
-        "Boundary check: video_count exactly AT threshold should pass"
-    ),
-    (
-        "original sound - user382920", "user382920",
-        "Thong Song", "PlaqueBoyMax",
-        TIER2_VIDEO_COUNT_THRESHOLD - 1, False,
-        "Boundary check: video_count one below threshold should fail"
-    ),
+    # Tier 2 is GONE — generic uploads never pass on popularity alone,
+    # regardless of discovery source
+    ("original sound - maxfanpage", "maxfanpage", "Thong Song", "PlaqueBoyMax", 999999, "title_artist", False,
+     "REGRESSION: Tier 2 is removed — no video_count, however high, "
+     "substitutes for a real artist match, even from the 'trusted' "
+     "title_artist source"),
+    ("original sound - maxfanpage", "maxfanpage", "Thong Song", "PlaqueBoyMax", 50, "title_artist", False,
+     "Low traction generic upload — also rejected"),
+    ("original sound - veesun95", "veesun95", "Griddle", "Yeat", 1605136, "challenge", False,
+     "The original Tier-2-breaking case: a 1.6M-video generic upload "
+     "with zero relation, from the challenge crawl"),
+    ("Original Sound", "TikTok Advertiser", "Back Home", "Yeat", 97335, "title_artist", False,
+     "REGRESSION: the exact real-world case that broke Tier 2 a second "
+     "time — a completely unrelated account, high video count, from the "
+     "'trusted' title_artist source"),
 
-    # ── Derivative versions — should never pass even with high popularity ─
-    (
-        "Thong Song Remix", "Yung Princey",
-        "Thong Song", "PlaqueBoyMax",
-        500000, False,
-        "A remix by an unrelated uploader must not pass even with huge "
-        "video_count — derivative marker should block Tier 2"
-    ),
-    (
-        "Thong Song sped up", "randomclipz",
-        "Thong Song", "PlaqueBoyMax",
-        500000, False,
-        "Sped-up derivative should also be blocked from Tier 2"
-    ),
+    # Short/common artist name — the _artist_signal ratio fix
+    ("original sound - booyahbooom", "bells_yeat", "Back Home", "Yeat", 259432, "title_artist", False,
+     "REGRESSION: 'bells_yeat' is a fan handle that merely contains the "
+     "substring 'yeat' — must NOT count as a real artist match, "
+     "regardless of video_count"),
 
-    # ── Artist name variants — substring matching (the Pink Dreads/Clips fix) ─
-    (
-        "Thong Song", "PlaqueBoyMax Clips",
-        "Thong Song", "PlaqueBoyMax",
-        1000, True,
-        "Space-separated variant of the artist name in author field"
-    ),
-    (
-        "Thong Song", "officialplaqueboymax",
-        "Thong Song", "PlaqueBoyMax",
-        1000, True,
-        "Concatenated, no-space variant of the artist name in author field"
-    ),
-    (
-        "Thong Song", "plaqueboymaxarchive",
-        "Thong Song", "PlaqueBoyMax",
-        1000, True,
-        "Another concatenated no-space variant"
-    ),
+    # Derivative versions — never pass even with high popularity
+    ("Thong Song Remix", "Yung Princey", "Thong Song", "PlaqueBoyMax", 500000, "title_artist", False,
+     "A remix by an unrelated uploader must not pass"),
+    ("Thong Song sped up", "randomclipz", "Thong Song", "PlaqueBoyMax", 500000, "title_artist", False,
+     "Sped-up derivative should also be blocked"),
 
-    # ── No artist on file at all — fall back to title-only matching ──────
-    (
-        "Ski Slopes", "some_random_uploader",
-        "Ski Slopes", "",
-        1000, True,
-        "No artist on file for this song — exact title match alone should pass"
-    ),
-    (
-        "Completely Different Song", "some_random_uploader",
-        "Ski Slopes", "",
-        1000, False,
-        "No artist on file, and title doesn't match either — reject"
-    ),
+    # Artist name variants — substring + ratio, still working for real matches
+    ("Thong Song", "PlaqueBoyMax Clips", "Thong Song", "PlaqueBoyMax", 1000, None, True,
+     "Space-separated variant, ratio 0.706 — clears the 0.5 threshold"),
+    ("Thong Song", "officialplaqueboymax", "Thong Song", "PlaqueBoyMax", 1000, None, True,
+     "Concatenated variant, ratio 0.6 — clears the threshold"),
+    ("Thong Song", "plaqueboymaxarchive", "Thong Song", "PlaqueBoyMax", 1000, None, True,
+     "Another concatenated variant, ratio 0.632 — clears the threshold"),
 
-    # ── Edge cases ─────────────────────────────────────────────────────────
-    (
-        "Thong Song", "PlaqueBoyMax",
-        "", "PlaqueBoyMax",
-        1000, False,
-        "Missing song title entirely — never approve blind, even with "
-        "an artist match"
-    ),
+    # No artist on file at all — fall back to title-only matching
+    ("Ski Slopes", "some_random_uploader", "Ski Slopes", "", 1000, None, True,
+     "No artist on file — exact title match alone should pass"),
+    ("Completely Different Song", "some_random_uploader", "Ski Slopes", "", 1000, None, False,
+     "No artist on file, title doesn't match either — reject"),
 
-    # ── Stylized/accented titles — the Yeat diacritic bug ────────────────
-    (
-        "Griddlë", "Yeat & Don Toliver",
-        "Griddle", "Yeat",
-        2223, True,
-        "REGRESSION: stylized title with a diacritic ('Griddlë') must "
-        "still exact-match the plain song title on file ('Griddle') — "
-        "_normalize_str was deleting accented characters outright instead "
-        "of transliterating them, so 'Griddlë' normalized to 'griddl' "
-        "(missing the final letter) and could never match 'griddle'"
-    ),
-    (
-        "Monëy so big", "Yeat",
-        "Money So Big", "Yeat",
-        66233, True,
-        "REGRESSION: 'Monëy so big' must exact-match 'Money So Big' — "
-        "previously normalized to 'mon y so big' (gap where the accented "
-        "character was deleted), breaking the match entirely"
-    ),
-    (
-        "original sound - Gët Busy fan", "randomuser",
-        "Gët Busy", "Yeat",
-        50, False,
-        "Low-traction generic upload should still correctly reject even "
-        "when both sound and song titles share the same stylization"
-    ),
+    # Edge cases
+    ("Thong Song", "PlaqueBoyMax", "", "PlaqueBoyMax", 1000, None, False,
+     "Missing song title entirely — never approve blind"),
+
+    # Stylized/accented titles — the Yeat diacritic bug
+    ("Griddlë", "Yeat & Don Toliver", "Griddle", "Yeat", 2223, None, True,
+     "Stylized title with a diacritic must still exact-match the plain "
+     "song title on file"),
+    ("Monëy so big", "Yeat", "Money So Big", "Yeat", 66233, None, True,
+     "Diacritic-stripped title must exact-match"),
+]
+
+
+# ── _artist_signal cases — the ratio guard specifically ──────────────────
+# (author, artist, expected, description)
+ARTIST_SIGNAL_CASES = [
+    ("bellsyeat", "yeat", False, "REGRESSION: fan handle, ratio 0.44 — must fail"),
+    ("plaqueboymaxclips", "plaqueboymax", True, "Real match, ratio 0.706 — must pass"),
+    ("officialplaqueboymax", "plaqueboymax", True, "Real match, ratio 0.6 — must pass"),
+    ("plaqueboymax", "plaqueboymax", True, "Exact match, ratio 1.0 — must pass"),
+    ("randomuser123", "yeat", False, "No substring at all — must fail"),
+]
+
+
+# ── _is_plausible_candidate cases — discovery's looser filter ───────────
+# (title, author, song_name, song_artist, discovered_via, expected, description)
+DISCOVERY_FILTER_CASES = [
+    ("Griddle", "Yeat", "Griddle", "Yeat", "title_only", True, "Plain match"),
+    ("Griddle Remix", "randomuser", "Griddle", "Yeat", "title_only", True,
+     "Derivative title from an unconfirmed uploader — still PLAUSIBLE to "
+     "store, even though qualify will likely reject it as a derivative"),
+    ("Way down We Go", "KELAO", "Griddle", "Yeat", "challenge", False,
+     "Zero relation — must never be stored"),
+    ("La Muchachita", "Anthony Santos", "Griddle", "Yeat", "challenge", False,
+     "Zero relation — must never be stored"),
+    ("original sound - randomuser", "randomuser", "Griddle", "Yeat", "title_only", False,
+     "Generic upload, no title/artist signal — not plausible"),
 ]
 
 
 def run():
     failures = []
+
     for i, (sound_title, sound_author, song_title, song_artist,
-            video_count, expected, description) in enumerate(CASES, 1):
+            video_count, discovered_via, expected, description) in enumerate(CLASSIFY_CASES, 1):
         actual = _classify_sound_match(
-            sound_title, sound_author, song_title, song_artist, video_count
+            sound_title, sound_author, song_title, song_artist,
+            video_count, discovered_via=discovered_via
         )
         status = "PASS" if actual == expected else "FAIL"
+        print(f"[{status}] classify #{i}: {description}")
         if actual != expected:
-            failures.append((i, description, sound_title, sound_author,
-                              song_title, song_artist, video_count,
-                              expected, actual))
-        print(f"[{status}] #{i}: {description}")
+            failures.append(f"classify #{i}: {description} — expected {expected}, got {actual}")
 
+    for i, (author, artist, expected, description) in enumerate(ARTIST_SIGNAL_CASES, 1):
+        actual = _artist_signal(_normalize_str(author), _normalize_str(artist))
+        status = "PASS" if actual == expected else "FAIL"
+        print(f"[{status}] artist_signal #{i}: {description}")
+        if actual != expected:
+            failures.append(f"artist_signal #{i}: {description} — expected {expected}, got {actual}")
+
+    for i, (title, author, song_name, song_artist, discovered_via, expected, description) in enumerate(DISCOVERY_FILTER_CASES, 1):
+        actual = _is_plausible_candidate(title, author, song_name, song_artist, discovered_via)
+        status = "PASS" if actual == expected else "FAIL"
+        print(f"[{status}] discovery_filter #{i}: {description}")
+        if actual != expected:
+            failures.append(f"discovery_filter #{i}: {description} — expected {expected}, got {actual}")
+
+    total = len(CLASSIFY_CASES) + len(ARTIST_SIGNAL_CASES) + len(DISCOVERY_FILTER_CASES)
     print()
     if failures:
-        print(f"{len(failures)} of {len(CASES)} cases FAILED:\n")
-        for (i, description, sound_title, sound_author, song_title,
-             song_artist, video_count, expected, actual) in failures:
-            print(f"  #{i}: {description}")
-            print(f"      sound_title={sound_title!r} sound_author={sound_author!r}")
-            print(f"      song_title={song_title!r} song_artist={song_artist!r} video_count={video_count}")
-            print(f"      expected={expected} actual={actual}\n")
+        print(f"{len(failures)} of {total} cases FAILED:\n")
+        for f in failures:
+            print(f"  {f}")
         sys.exit(1)
     else:
-        print(f"All {len(CASES)} cases passed.")
+        print(f"All {total} cases passed.")
         sys.exit(0)
 
 

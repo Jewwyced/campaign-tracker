@@ -33,15 +33,16 @@ SOURCE_CACHE    = "cache"
 SOURCE_TIKAPI   = "tikapi"
 SOURCE_FALLBACK = "fallback"
 
-# Tier-2 fallback threshold for _classify_sound_match: when there's no
-# artist signal at all (generic "original sound - username" upload) but the
-# title is an exact match and the sound has clearly taken off, treat that
-# as good enough evidence. This is a heuristic, not a certainty — tune it
-# against real approval data over time. It deliberately does NOT apply when
-# the author field names a distinct, credited artist — that case is treated
-# as real negative evidence (a different official recording), not just
-# "no evidence".
-TIER2_VIDEO_COUNT_THRESHOLD = 10000
+# Minimum proportion of an author string that the artist name must make
+# up for _artist_signal to count it as a real match, not just a
+# coincidental substring. Short/common artist names (e.g. "Yeat") can
+# appear inside unrelated fan-account handles ("bells_yeat") that mention
+# the artist without being any kind of official confirmation — a bare
+# substring check can't tell "PlaqueBoyMax Clips" (a real match, artist
+# name is 67% of the string) apart from "bells_yeat" (a fan handle, artist
+# name is only 44% of the string). 0.5 cleanly separates every case seen
+# so far — tune if new false positives/negatives turn up.
+ARTIST_SIGNAL_MIN_RATIO = 0.5
 
 # Max number of pending sounds to actually hit the provider for in a single
 # qualify_pending_sounds_for_song() call. A song can easily have 200-400
@@ -219,12 +220,14 @@ def _is_plausible_candidate(title, author, song_name, song_artist, discovered_vi
     # enough to be worth storing and letting qualify look at properly.
     if plausible_title:
         return True
-    if _artist_signal(s_author, artist_norm):
+    if _artist_signal(author, artist_norm):
         return True
-
-    is_generic_upload = "original sound" in s_title
-    if is_generic_upload and discovered_via == "title_artist":
-        return True  # video_count unknown until qualify — genuinely undecidable here
+    # NOTE: previously also kept generic "original sound" uploads from the
+    # 'title_artist' source as plausible, on the theory that qualify's
+    # Tier 2 might approve them on popularity. Tier 2 has been removed
+    # (see _classify_sound_match) after producing real false positives
+    # twice, so that path no longer leads to approval — no reason to keep
+    # these as plausible here either.
 
     return False
 
@@ -273,15 +276,15 @@ def _could_possibly_qualify(title, author, song_name, song_artist, discovered_vi
         # to learn it — video_count doesn't change whether a title matches).
         return strong_title_possible
 
-    if _artist_signal(s_author, artist_norm) and strong_title_possible:
+    if _artist_signal(author, artist_norm) and strong_title_possible:
         return True  # Tier 1 already provable from stored data alone
 
-    is_generic_upload = "original sound" in s_title
-    if is_generic_upload and discovered_via == "title_artist":
-        # Tier 2 is POSSIBLE (video_count unknown until the API call) —
-        # this is the one case where we genuinely can't decide without
-        # spending the call.
-        return True
+    # NOTE: previously kept generic uploads from the 'title_artist' source
+    # as "possibly qualifiable" pending a video_count check, since Tier 2
+    # might have approved them. Tier 2 has been removed (see
+    # _classify_sound_match) — nothing left downstream can approve a
+    # generic upload with no artist signal, so there's no reason to spend
+    # an API call finding that out. Bulk-reject it here for free instead.
 
     return False
 
@@ -352,43 +355,71 @@ def _score_sound(sound, title, artist):
     return score
 
 
-def _artist_signal(author_norm, artist_norm):
-    """True substring match between an artist name and a sound's author
-    field — deliberately looser than a word-subset check so that
-    concatenated, no-space handles like 'plaqueboymaxclips' or
-    'officialplaqueboymax' still match, not just space-separated variants
-    like 'plaqueboymax clips'. Checks both the normalized strings directly
-    and a no-space variant of each."""
-    if not artist_norm or not author_norm:
+import re as _collab_re_module
+_COLLAB_SEPARATOR_RE = _collab_re_module.compile(r'&|,|\bx\b|\band\b|\bfeat\.?\b|\bft\.?\b', _collab_re_module.IGNORECASE)
+
+
+def _artist_signal(raw_author, artist_norm):
+    """Match an artist name against a sound's author field, handling two
+    genuinely different situations that both shrink a naive length ratio:
+      - A real multi-artist credit ("Yeat & Don Toliver") — the artist
+        name is a small fraction of the FULL string, but 100% of its own
+        segment once split on the collab separator.
+      - A fan handle that merely mentions the artist ("bells_yeat") — no
+        real separator, the artist name is genuinely just embedded in an
+        unrelated compound word.
+
+    A single whole-string ratio can't tell these apart — "Yeat" is a
+    small fraction of "Yeat & Don Toliver" for the same arithmetic reason
+    it's a small fraction of "bells_yeat" character-count-wise. The fix:
+    split the RAW (pre-normalization — normalization destroys the '&')
+    author string on real collab separators first, then check the ratio
+    against each resulting segment individually. A short artist name
+    still passes cleanly when it IS its own credited segment; it still
+    fails when it's just embedded in one longer unrelated word.
+    """
+    if not artist_norm or not raw_author:
         return False
-    if artist_norm in author_norm:
-        return True
-    author_nospace = author_norm.replace(" ", "")
     artist_nospace = artist_norm.replace(" ", "")
-    return bool(artist_nospace) and artist_nospace in author_nospace
+    if not artist_nospace:
+        return False
+
+    segments = _COLLAB_SEPARATOR_RE.split(raw_author) or [raw_author]
+    for seg in segments:
+        seg_norm = _normalize_str(seg)
+        seg_nospace = seg_norm.replace(" ", "")
+        if not seg_nospace:
+            continue
+        contains = (artist_norm in seg_norm) or (artist_nospace in seg_nospace)
+        if not contains:
+            continue
+        ratio = len(artist_nospace) / len(seg_nospace) if seg_nospace else 0
+        if ratio >= ARTIST_SIGNAL_MIN_RATIO:
+            return True
+    return False
 
 
 def _classify_sound_match(sound_title, sound_author, song_title, song_artist, video_count=0, discovered_via=None):
     """Relevance check used to GATE approval at qualify time.
 
-    Tier 1 — confirmed artist match AND some real title relation -> approve.
-    Tier 2 (NARROW) — no artist signal, but the candidate was discovered
-             via discovered_via == 'title_artist' specifically (the
-             combined title+artist search — never 'title_only', 'hashtag',
-             'challenge', or missing/legacy data), the title carries
-             TikTok's own "original sound - <uploader>" marker, and the
-             sound has real traction -> approve.
+    Confirmed artist match AND some real title relation -> approve.
     Everything else -> reject.
 
-    Why Tier 2 requires discovered_via == 'title_artist' specifically:
-    A previous version approved ANY generic upload with high video_count,
-    regardless of where it came from. That failed catastrophically on
-    "Griddle": the song title collides with an unrelated, massive TikTok
-    dance trend, and the challenge/hashtag crawl pulled in dozens of
-    wildly popular (1M+ video), completely unrelated sounds. Every one got
-    approved on popularity alone — 33 false positives out of 34 approvals
-    for one song. No video_count threshold fixes this on its own, since
-    the false positives themselves had multi-million view counts.
+    Tier 2 (popularity-only approval for generic uploads with no artist
+    signal) has been removed TWICE now, both times after confirming real
+    false positives:
+      1st removal — Griddle's challenge/hashtag crawl pulled in dozens of
+      wildly popular, completely unrelated sounds via a dance-trend
+      collision.
+      2nd removal (this one) — even restricted to the supposedly-trusted
+      'title_artist' discovery source, Back Home approved "TikTok
+      Advertiser" and a Tyler the Creator fan account purely on video
+      count. TikTok's search relevance for a combined title+artist query
+      does not reliably require both terms to genuinely co-occur in a
+      meaningful way — it can still surface generally popular content
+      that only loosely matches. Popularity is not a safe substitute for
+      a real artist match, and there's no source restriction that's
+      proven reliable enough to justify the risk twice in a row.
 
     Returns True (approve) or False (reject) — no partial credit.
     """
@@ -422,18 +453,10 @@ def _classify_sound_match(sound_title, sound_author, song_title, song_artist, vi
         # No artist on file to check against at all — fall back to title alone.
         return strong_title
 
-    # --- Tier 1: confirmed artist match AND some real title relation ---
-    if _artist_signal(s_author, artist_norm) and (strong_title or title_multiword):
-        return True
-
-    # --- Tier 2 (narrow): generic upload, but ONLY from the title_artist search ─
-    is_generic_upload = "original sound" in s_title
-    if (
-        is_generic_upload
-        and not is_derivative
-        and discovered_via == "title_artist"
-        and video_count >= TIER2_VIDEO_COUNT_THRESHOLD
-    ):
+    # --- Confirmed artist match AND some real title relation -> approve ──
+    # Artist match ALONE is not enough — an artist can have many songs
+    # (e.g. PlaqueBoyMax has "Thong Song" AND "Pink Dreads" AND others).
+    if _artist_signal(sound_author, artist_norm) and (strong_title or title_multiword):
         return True
 
     # --- Everything else -> reject ─────────────────────────────────────────
