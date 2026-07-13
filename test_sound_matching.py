@@ -185,6 +185,33 @@ CASES = [
         "Missing song title entirely — never approve blind, even with "
         "an artist match"
     ),
+
+    # ── Stylized/accented titles — the Yeat diacritic bug ────────────────
+    (
+        "Griddlë", "Yeat & Don Toliver",
+        "Griddle", "Yeat",
+        2223, True,
+        "REGRESSION: stylized title with a diacritic ('Griddlë') must "
+        "still exact-match the plain song title on file ('Griddle') — "
+        "_normalize_str was deleting accented characters outright instead "
+        "of transliterating them, so 'Griddlë' normalized to 'griddl' "
+        "(missing the final letter) and could never match 'griddle'"
+    ),
+    (
+        "Monëy so big", "Yeat",
+        "Money So Big", "Yeat",
+        66233, True,
+        "REGRESSION: 'Monëy so big' must exact-match 'Money So Big' — "
+        "previously normalized to 'mon y so big' (gap where the accented "
+        "character was deleted), breaking the match entirely"
+    ),
+    (
+        "original sound - Gët Busy fan", "randomuser",
+        "Gët Busy", "Yeat",
+        50, False,
+        "Low-traction generic upload should still correctly reject even "
+        "when both sound and song titles share the same stylization"
+    ),
 ]
 
 

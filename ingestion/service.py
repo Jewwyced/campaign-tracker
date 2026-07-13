@@ -96,10 +96,33 @@ def _touch_sound_ingested(db_conn_factory, sound_db_id):
 
 
 import re as _re
+import unicodedata as _unicodedata
 
 def _normalize_str(s):
-    """Lowercase, remove punctuation and extra spaces for comparison."""
-    return _re.sub(r'[^a-z0-9 ]', ' ', (s or "").lower()).strip()
+    """Lowercase, transliterate accented/stylized characters to their plain
+    equivalent, remove remaining punctuation, and collapse extra spaces.
+
+    IMPORTANT: this used to just delete any character outside [a-z0-9 ],
+    which silently mangled stylized titles instead of normalizing them.
+    Many artists (Yeat especially — "Gët Busy", "Monëy so big", "Griddlë")
+    use accented characters as stylization on otherwise plain song titles.
+    Deleting 'ë' outright turned "Griddlë" into "griddl" (missing the final
+    letter) or left a gap ("Monëy so big" -> "mon y so big"), so it could
+    never exactly match the plain song title on file ("Griddle" ->
+    "griddle") even though they're clearly the same song. This was
+    silently breaking exact-title matching for a large share of this
+    artist's own official sound titles specifically because of how he
+    stylizes them — not a discovery or classifier bug, a normalization bug
+    underneath both.
+
+    Fix: NFKD-decompose first (splits 'ë' into 'e' + a combining diaeresis
+    mark), then drop the combining marks, THEN strip remaining punctuation.
+    'ë' becomes 'e' instead of vanishing.
+    """
+    s = s or ""
+    s = _unicodedata.normalize('NFKD', s)
+    s = ''.join(c for c in s if not _unicodedata.combining(c))
+    return _re.sub(r'[^a-z0-9 ]', ' ', s.lower()).strip()
 
 def _update_sound_velocity(db_conn_factory, sound_db_id):
     """Calculate and store velocity metrics for a sound.
