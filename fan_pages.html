@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Fan Pages</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --border: #e4e4e7;
+    --border-light: #f0f0f2;
+    --text-primary: #09090b;
+    --text-secondary: #52525b;
+    --text-muted: #a1a1aa;
+    --accent: #6366f1;
+    --accent-light: #eef2ff;
+    --success: #059669;
+    --success-bg: #ecfdf5;
+    --danger: #dc2626;
+    --danger-bg: #fef2f2;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; padding: 0 32px; border-bottom: 1px solid var(--border); height: 52px; background: white; }
+  header .nav a { font-size: 13px; color: var(--text-secondary); text-decoration: none; margin-right: 20px; }
+  header .nav a:hover { color: var(--text-primary); }
+  main { padding: 32px; max-width: 1200px; margin: 0 auto; }
+  .breadcrumb { font-size: 13px; margin-bottom: 20px; }
+  .breadcrumb a { color: var(--text-muted); text-decoration: none; }
+  .breadcrumb a:hover { color: var(--text-primary); }
+
+  .page-title { font-size: 26px; font-weight: 800; letter-spacing: -0.6px; margin-bottom: 24px; }
+
+  .add-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 24px; }
+  .add-label { font-size: 13px; color: var(--text-secondary); margin-bottom: 10px; }
+  .add-row { display: flex; gap: 8px; }
+  input[type=text] { flex: 1; font-family: inherit; font-size: 14px; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text-primary); }
+  input[type=text]:focus { outline: none; border-color: var(--accent); }
+  button.btn-primary { font-size: 13px; font-family: inherit; background: var(--accent); color: white; border: none; padding: 9px 16px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+  button.btn-primary:hover { background: #4f46e5; }
+  button.btn-primary:disabled { background: var(--text-muted); cursor: default; }
+  button.btn-secondary { font-size: 13px; font-family: inherit; background: none; color: var(--text-secondary); border: 1px solid var(--border); padding: 9px 16px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+  button.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  #add-error { font-size: 13px; color: var(--danger); margin-top: 10px; }
+  #add-status { font-size: 13px; color: var(--text-muted); margin-top: 8px; }
+
+  .section-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+
+  .fanpage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .fanpage-card { background: white; border: 1px solid var(--border); border-radius: 14px; padding: 18px; position: relative; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+  .fanpage-card:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(99,102,241,.08); }
+  .fanpage-card .username { font-size: 15px; font-weight: 700; padding-right: 24px; }
+  .fanpage-card .followers { font-size: 24px; font-weight: 800; margin-top: 10px; letter-spacing: -0.5px; }
+  .fanpage-card .delta { font-size: 12px; font-weight: 600; margin-top: 3px; }
+  .fanpage-card .delta.up { color: var(--success); }
+  .fanpage-card .delta.down { color: var(--danger); }
+  .fanpage-card .delta.flat { color: var(--text-muted); }
+  .fanpage-card .meta { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+  .fanpage-card .remove-btn { position: absolute; top: 12px; right: 12px; width: 24px; height: 24px; border-radius: 6px; background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .fanpage-card .remove-btn:hover { background: var(--danger-bg); color: var(--danger); }
+
+  .empty { padding: 48px; text-align: center; color: var(--text-muted); font-size: 14px; line-height: 1.6; background: white; border: 1px solid var(--border); border-radius: 12px; }
+  .loading { padding: 40px; text-align: center; color: var(--text-muted); font-size: 14px; }
+
+  /* Detail panel */
+  #detail { display: none; margin-top: 28px; }
+  .detail-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .detail-title { font-size: 18px; font-weight: 700; }
+  .posts-table { width: 100%; border-collapse: collapse; background: white; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; font-size: 13px; }
+  .posts-table th { text-align: left; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .4px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--bg); }
+  .posts-table td { padding: 10px 14px; border-bottom: 1px solid var(--border-light); }
+  .posts-table tr:last-child td { border-bottom: none; }
+  .posts-table tr:hover td { background: var(--bg); }
+  .posts-table .desc { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
+  .posts-table a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .posts-table a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<header>
+  <div class="nav">
+    <a href="/">Dashboard</a>
+    <a href="/campaigns">Campaigns</a>
+    <a href="/songs">Songs</a>
+    <a href="/artists">Artists</a>
+    <a href="/sounds">Sound lookup</a>
+  </div>
+</header>
+
+<main>
+  <div class="breadcrumb"><a href="#" id="breadcrumb-link">← Back to campaign</a></div>
+  <div class="page-title">Fan Pages</div>
+
+  <div class="add-card">
+    <div class="add-label">Track a fan page — we'll pull their follower growth and recent posts.</div>
+    <div class="add-row">
+      <input type="text" id="username-input" placeholder="TikTok username, no @">
+      <button class="btn-primary" onclick="addFanPage()" id="add-btn">+ Add</button>
+      <button class="btn-secondary" onclick="refreshAll()" id="refresh-btn">↻ Refresh All</button>
+    </div>
+    <div id="add-error"></div>
+    <div id="add-status"></div>
+  </div>
+
+  <div class="fanpage-grid" id="fanpage-grid"><div class="loading">Loading...</div></div>
+
+  <div id="detail">
+    <div class="detail-header">
+      <div class="detail-title" id="detail-title"></div>
+      <a id="detail-link" href="#" target="_blank" class="btn-secondary" style="text-decoration:none;display:inline-block;">View on TikTok ↗</a>
+    </div>
+    <table class="posts-table">
+      <thead>
+        <tr><th>Date</th><th>Description</th><th>Views</th><th>Likes</th><th>Comments</th><th>Followers at Post</th></tr>
+      </thead>
+      <tbody id="posts-tbody"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+const campaignId = window.location.pathname.split('/')[2];
+document.getElementById('breadcrumb-link').href = '/campaign/' + campaignId;
+
+function fmt(n) {
+  if (n == null || isNaN(n)) return '-';
+  if (n >= 1e9) return (n/1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+  return String(n);
+}
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+function formatDate(ts) {
+  if (!ts) return '-';
+  return new Date(parseInt(ts) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+async function load() {
+  const grid = document.getElementById('fanpage-grid');
+  const res = await fetch(`/api/campaigns/${campaignId}/fan_pages`);
+  const fanPages = res.ok ? await res.json() : [];
+
+  if (!fanPages.length) {
+    grid.innerHTML = '<div class="empty">No fan pages tracked yet.<br><span style="font-size:13px;">Add one above to get started.</span></div>';
+    return;
+  }
+
+  grid.innerHTML = fanPages.map(f => {
+    const delta = f.followers_delta;
+    const deltaClass = delta == null ? 'flat' : delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
+    const deltaText = delta == null ? '—' : delta > 0 ? '+' + fmt(delta) + ' today' : delta < 0 ? fmt(delta) + ' today' : 'No change';
+    return `<div class="fanpage-card" onclick="showDetail('${escapeHtml(f.username)}')">
+      <button class="remove-btn" onclick="event.stopPropagation();removeFanPage('${escapeHtml(f.username)}')" title="Remove">×</button>
+      <div class="username">@${escapeHtml(f.username)}</div>
+      <div class="followers">${fmt(f.followers)}</div>
+      <div class="delta ${deltaClass}">${deltaText}</div>
+      <div class="meta">${f.post_count} posts tracked · ${fmt(f.avg_views)} avg views</div>
+    </div>`;
+  }).join('');
+}
+
+async function showDetail(username) {
+  document.getElementById('detail').style.display = 'block';
+  document.getElementById('detail-title').textContent = '@' + username;
+  document.getElementById('detail-link').href = 'https://www.tiktok.com/@' + username;
+
+  const res = await fetch(`/api/campaigns/${campaignId}/fan_pages/${username}/posts`);
+  const posts = res.ok ? await res.json() : [];
+  const tbody = document.getElementById('posts-tbody');
+  if (!posts.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:24px;">No posts yet — try Refresh All.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = posts.map(p => `
+    <tr>
+      <td><a href="https://www.tiktok.com/@${escapeHtml(username)}/video/${escapeHtml(p.post_id)}" target="_blank">${formatDate(p.created_at)} ↗</a></td>
+      <td class="desc" title="${escapeHtml(p.description || '')}">${escapeHtml(p.description || '-')}</td>
+      <td>${fmt(p.views)}</td>
+      <td>${fmt(p.likes)}</td>
+      <td>${fmt(p.comments)}</td>
+      <td>${fmt(p.followers_at_post)}</td>
+    </tr>
+  `).join('');
+
+  document.getElementById('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function addFanPage() {
+  const input = document.getElementById('username-input');
+  const btn = document.getElementById('add-btn');
+  const errEl = document.getElementById('add-error');
+  const statusEl = document.getElementById('add-status');
+  const username = input.value.trim().replace(/^@/, '');
+  if (!username) return;
+  btn.disabled = true;
+  btn.textContent = 'Adding...';
+  errEl.textContent = '';
+  statusEl.textContent = 'Fetching from TikTok...';
+  try {
+    const res = await fetch(`/api/campaigns/${campaignId}/fan_pages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username })
+    });
+    const data = await res.json();
+    if (!res.ok || data.ok === false) {
+      errEl.textContent = data.error || 'Something went wrong.';
+      statusEl.textContent = '';
+    } else {
+      input.value = '';
+      statusEl.textContent = `Added @${username}.`;
+      await load();
+    }
+  } catch (e) {
+    errEl.textContent = 'Could not reach the server.';
+  }
+  btn.disabled = false;
+  btn.textContent = '+ Add';
+}
+
+async function removeFanPage(username) {
+  if (!confirm(`Stop tracking @${username}? (Historical data is kept, just untracked from this campaign.)`)) return;
+  await fetch(`/api/campaigns/${campaignId}/fan_pages/${username}`, { method: 'DELETE' });
+  document.getElementById('detail').style.display = 'none';
+  await load();
+}
+
+async function refreshAll() {
+  const btn = document.getElementById('refresh-btn');
+  btn.disabled = true;
+  btn.textContent = 'Refreshing...';
+  try {
+    const res = await fetch(`/api/campaigns/${campaignId}/fan_pages/refresh`, { method: 'POST' });
+    const data = await res.json();
+    btn.textContent = data.ok ? `✓ Refreshed ${data.refreshed}/${data.total}` : '↻ Refresh All';
+  } catch (e) {
+    btn.textContent = '↻ Refresh All';
+  }
+  setTimeout(() => { btn.textContent = '↻ Refresh All'; btn.disabled = false; }, 2000);
+  await load();
+}
+
+document.getElementById('username-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') addFanPage();
+});
+
+load();
+</script>
+</body>
+</html>
