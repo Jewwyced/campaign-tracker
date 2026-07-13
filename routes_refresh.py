@@ -1,18 +1,46 @@
 """
-routes_refresh.py — two separate refresh endpoints with different schedules.
+routes_refresh.py — the automatic refresh cron and per-song manual actions.
 
-/api/refresh/discover  — finds new sounds for active songs (every 6h)
-/api/refresh/monitor   — refreshes posts for existing sounds (every 1h)
-/api/refresh           — legacy endpoint, runs monitor only
-/api/songs/<id>/quick_refresh — instant discover+qualify+ingest for ONE song,
-                                 used right after a song is added so the demo
-                                 doesn't have to wait for any cron cycle.
-/api/songs/<id>/ingest_only    — fast, targeted post-pull for ONE song's
-                                 already-approved sounds. No discovery, no
-                                 qualify. Use this when a song's sounds are
-                                 already correctly approved and you just
-                                 need posts pulled in without risking the
-                                 slower/timeout-prone full pipeline.
+ARCHITECTURE (finalized): discovery and refresh are fully separate
+responsibilities, and only ONE of them is allowed to run automatically.
+
+  Cron (automatic, hourly) — /api/refresh/monitor
+    Refreshes posts/stats for sounds ALREADY approved. Never searches for
+    new sounds, never adds pending candidates, never auto-approves
+    anything. This is the only cron job left, deliberately, so it's safe
+    to leave running 24/7 without worrying it will silently expand or
+    alter the canonical sound set while nobody's watching.
+
+  Find New Sounds (manual, per-song) — /api/songs/<id>/find_new_sounds
+    (see routes_songs.py) — the ONLY place discovery happens after a
+    song's initial creation. Never auto-approves — genuine matches land
+    in a pending review queue for a human to explicitly approve or
+    reject.
+
+  Initialize Song (one-time, at creation) — /api/songs/<id>/quick_refresh
+    (this file) — discover -> qualify (auto-approving) -> ingest. This is
+    the only place auto-approval happens, and only because a brand new
+    song needs SOME starting canonical set to be useful at all.
+
+REMOVED from this file: /api/refresh/discover and /api/refresh/qualify.
+Both used to run automatically and BOTH violated the "discovery is
+explicit, human-approved" principle above:
+  - /api/refresh/discover called the OLD, un-capped, unfiltered legacy
+    discovery function on every active song on a schedule — exactly the
+    bug that caused hundreds of unrelated candidates to flood in per song
+    before tonight's rebuild.
+  - /api/refresh/qualify auto-qualified EVERY pending sound across all
+    active campaigns on a schedule, with auto-approve defaulting to on.
+    Any sound sitting in a "Find New Sounds" review queue would have
+    silently become canonical the next time this cron fired — the exact
+    "why did these appear? the cron decided" problem this architecture
+    exists to prevent.
+
+If either of these routes is still configured as a scheduled job
+somewhere (Render Cron Job, external scheduler, etc.), that schedule
+needs to be deleted too — removing the route here means it'll just start
+404ing on schedule instead of running, which isn't the same as it being
+safely disabled.
 """
 
 import logging
@@ -53,19 +81,6 @@ def _release_lock():
         conn.commit()
 
 
-def _get_active_songs():
-    with db() as conn:
-        with conn.cursor() as c:
-            c.execute("""
-                SELECT DISTINCT s.id as song_id, s.name, s.artist
-                FROM campaign_songs cs
-                JOIN campaigns c ON c.id = cs.campaign_id
-                JOIN songs s ON s.id = cs.song_id
-                WHERE c.status = 'In Progress'
-            """)
-            return [dict(r) for r in c.fetchall()]
-
-
 def _get_active_sounds():
     """Get top 25 approved sounds by priority score (recent activity weighted).
     Only returns stale sounds not refreshed in last 3 hours."""
@@ -86,6 +101,7 @@ def _get_active_sounds():
                 AND (snd.last_ingested_at IS NULL
                      OR snd.last_ingested_at < NOW() - INTERVAL '3 hours')
                 ORDER BY
+                    (snd.last_ingested_at IS NULL) DESC,
                     (COALESCE(snd.posts_24h, 0) * 10 +
                      COALESCE(snd.posts_7d, 0) * 3) DESC,
                     snd.last_ingested_at ASC NULLS FIRST
@@ -94,57 +110,16 @@ def _get_active_sounds():
             return [dict(r) for r in c.fetchall()]
 
 
-@refresh_bp.route("/api/refresh/discover", methods=["POST"])
-def refresh_discover():
-    """Discovery scan — finds new sounds for active songs.
-    Run every 6 hours via cron: 0 */6 * * *"""
-    if not _acquire_lock('discover'):
-        return jsonify({"ok": False, "reason": "ingestion already running"}), 429
-
-    try:
-        active_songs = _get_active_songs()
-        logging.info(f"[discover] starting discovery for {len(active_songs)} songs")
-
-        new_sounds_total = 0
-        for song in active_songs:
-            try:
-                results = ingestion.ingest_song_sounds(
-                    db, song["song_id"], song["name"], song["artist"] or ""
-                )
-                count = len(results) if results else 0
-                new_sounds_total += count
-                logging.info(f"[discover] song '{song['name']}': {count} sounds found")
-            except Exception as e:
-                logging.warning(f"[discover] failed for song {song['song_id']}: {e}")
-
-        logging.info(f"[discover] complete: {new_sounds_total} total sounds across {len(active_songs)} songs")
-
-        # Auto-qualify after discovery so new sounds become approved immediately.
-        # NOTE: this reuses the same shared logic as /api/refresh/qualify and
-        # /api/songs/<id>/quick_refresh via ingestion_service.qualify_pending_sounds_for_song,
-        # so there is only ONE qualify implementation instead of three.
-        auto_approved = 0
-        for song in active_songs:
-            try:
-                result = ingestion_service.qualify_pending_sounds_for_song(db, song["song_id"])
-                auto_approved += result.get("approved", 0)
-            except Exception as e:
-                logging.warning(f"[discover] qualify failed for song {song['song_id']}: {e}")
-
-        logging.info(f"[discover] auto-qualified {auto_approved} sounds")
-        return jsonify({"ok": True, "songs_scanned": len(active_songs), "sounds_found": new_sounds_total, "auto_approved": auto_approved})
-
-    except Exception as e:
-        logging.exception("Discovery scan failed:")
-        return jsonify({"ok": False, "error": str(e)}), 500
-    finally:
-        _release_lock()
-
-
 @refresh_bp.route("/api/refresh/monitor", methods=["POST"])
 def refresh_monitor():
-    """Monitoring scan — refreshes posts for existing sounds.
-    Run every hour via cron: 0 * * * *"""
+    """The ONLY automatic cron job left. Refreshes posts for sounds that
+    are ALREADY approved — never searches for new sounds, never adds
+    pending candidates, never auto-approves anything. Safe to run hourly,
+    24/7, indefinitely, without risk of silently changing the canonical
+    sound set.
+
+    Run every hour via cron: 0 * * * *
+    """
     if not _acquire_lock('monitor'):
         return jsonify({"ok": False, "reason": "ingestion already running"}), 429
 
@@ -178,62 +153,14 @@ def refresh_monitor():
         _release_lock()
 
 
-@refresh_bp.route("/api/refresh/qualify", methods=["POST"])
-def refresh_qualify():
-    """Qualification scan — fetches music-info for pending sounds and promotes based on video_count.
-    Run after discovery to decide which sounds deserve monitoring.
-
-    NOTE: shares logic with the auto-qualify step inside /api/refresh/discover and
-    with /api/songs/<id>/quick_refresh via ingestion_service.qualify_pending_sounds_for_song.
-    """
-    if not _acquire_lock('qualify'):
-        return jsonify({"ok": False, "reason": "ingestion already running"}), 429
-
-    try:
-        with db() as conn:
-            with conn.cursor() as c:
-                c.execute("""
-                    SELECT DISTINCT snd.song_id
-                    FROM sounds snd
-                    WHERE snd.status = 'pending'
-                    AND snd.song_id IN (
-                        SELECT cs.song_id FROM campaign_songs cs
-                        JOIN campaigns c ON c.id = cs.campaign_id
-                        WHERE c.status = 'In Progress'
-                    )
-                """)
-                song_ids = [r["song_id"] for r in c.fetchall()]
-
-        logging.info(f"[qualify] checking pending sounds across {len(song_ids)} songs")
-
-        total_checked = total_approved = total_inactive = 0
-        for song_id in song_ids:
-            result = ingestion_service.qualify_pending_sounds_for_song(db, song_id)
-            total_checked += result.get("checked", 0)
-            total_approved += result.get("approved", 0)
-            total_inactive += result.get("inactive", 0)
-
-        logging.info(f"[qualify] {total_checked} checked: {total_approved} approved, {total_inactive} inactive")
-        return jsonify({
-            "ok": True,
-            "checked": total_checked,
-            "approved": total_approved,
-            "inactive": total_inactive,
-        })
-
-    except Exception as e:
-        logging.exception("Qualify scan failed:")
-        return jsonify({"ok": False, "error": str(e)}), 500
-    finally:
-        _release_lock()
-
-
 @refresh_bp.route("/api/songs/<int:song_id>/quick_refresh", methods=["POST"])
 def quick_refresh_song(song_id):
-    """Instant, single-song pipeline: discover -> qualify -> ingest posts.
-    Call this right after creating a song so the UI can show a 'loading' state
-    and then have everything (sounds AND videos) appear at once — no separate
-    manual discover/qualify/monitor steps, no waiting for the next cron cycle.
+    """Initialize Song — runs ONCE, right after a song is created: discover
+    -> qualify (auto-approving) -> ingest posts. This is the only place
+    auto-approval happens, and only because a brand new song needs SOME
+    starting canonical set to be useful. Never call this as a routine
+    refresh — see refresh_monitor above and refresh_song in
+    routes_songs.py for that.
     """
     if not _acquire_lock(f'quick_refresh_song_{song_id}'):
         return jsonify({"ok": False, "reason": "ingestion already running"}), 429
@@ -267,8 +194,8 @@ def ingest_only_song(song_id):
     """Fast, targeted ingest for ONE song's already-approved sounds — no
     discovery, no qualify. Use this when a song's sounds are already
     correctly approved (e.g. approved manually) and you just need to pull
-    posts in without re-running the full (possibly slow/timeout-prone)
-    discover -> qualify -> ingest pipeline via quick_refresh."""
+    posts in without re-running the full discover -> qualify -> ingest
+    pipeline via quick_refresh."""
     if not _acquire_lock(f'ingest_only_song_{song_id}'):
         return jsonify({"ok": False, "reason": "ingestion already running"}), 429
 
