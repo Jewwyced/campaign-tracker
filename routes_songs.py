@@ -234,6 +234,60 @@ def delete_sound(sound_db_id):
     return jsonify({"ok": True})
 
 
+@songs_bp.route("/api/sounds/<int:sound_db_id>/approve", methods=["POST"])
+def approve_sound(sound_db_id):
+    """Manually approve a pending sound — the human-in-the-loop step for
+    candidates find_new_sounds found but deliberately left pending rather
+    than auto-approving. Immediately ingests posts for it too, so it
+    starts showing real data right away instead of waiting for the next
+    refresh cycle."""
+    from ingestion import service as ingestion_service
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT id, song_id, sound_id FROM sounds WHERE id=%s", (sound_db_id,))
+            row = c.fetchone()
+            if not row:
+                return jsonify({"error": "Sound not found"}), 404
+            c.execute("UPDATE sounds SET status='approved' WHERE id=%s", (sound_db_id,))
+        conn.commit()
+
+    result = ingestion_service.ingest_sound(db, row["song_id"], row["id"], row["sound_id"], max_results=35)
+    return jsonify({"ok": True, "sound_id": sound_db_id, "posts_added": result.get("posts_added", 0)})
+
+
+@songs_bp.route("/api/sounds/<int:sound_db_id>/reject", methods=["POST"])
+def reject_sound(sound_db_id):
+    """Manually reject a pending sound — explicit human 'no', distinct
+    from DELETE (which removes the row entirely). Keeps the sound's
+    history/title/author on record as 'inactive' rather than erasing it."""
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT id FROM sounds WHERE id=%s", (sound_db_id,))
+            if not c.fetchone():
+                return jsonify({"error": "Sound not found"}), 404
+            c.execute("UPDATE sounds SET status='inactive' WHERE id=%s", (sound_db_id,))
+        conn.commit()
+    return jsonify({"ok": True, "sound_id": sound_db_id})
+
+
+@songs_bp.route("/api/songs/<int:song_id>/pending_review")
+def pending_review(song_id):
+    """Lists sounds still sitting 'pending' for a song — the review queue
+    a human works through after 'Find New Sounds' runs (auto_approve=False
+    means genuine matches stay pending instead of auto-becoming canonical).
+    Sorted by video_count so the most-likely-real candidates surface first."""
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                SELECT id, sound_id, title, author, current_video_count, discovered_via
+                FROM sounds
+                WHERE song_id = %s AND status = 'pending'
+                ORDER BY current_video_count DESC NULLS LAST
+            """, (song_id,))
+            pending = [dict(r) for r in c.fetchall()]
+    return jsonify(pending)
+
+
 @songs_bp.route("/api/songs/<int:song_id>/posts")
 def song_posts(song_id):
     with db() as conn:
@@ -254,26 +308,37 @@ def song_posts(song_id):
 
 @songs_bp.route("/api/songs/<int:song_id>/refresh", methods=["POST"])
 def refresh_song(song_id):
-    """Re-discover sounds and refresh posts for a song.
-    Safe to call at any time — never deletes existing data.
+    """Routine refresh — updates posts/stats for a song's already-approved
+    (canonical) sounds ONLY. Never discovers new candidates.
 
-    IMPORTANT: this used to force-clear last_ingested_at on EVERY approved
-    sound before refreshing, which defeated ingest_sound's own freshness
-    cache (a 6-hour window meant to skip sounds refreshed recently, cheaply,
-    with just a DB read). That guaranteed a full network round-trip for
-    every single approved sound on every click, no matter how recently it
-    had been refreshed — which is a large part of why this endpoint was
-    timing out and crashing gunicorn workers. That forced reset is gone.
-
-    Standalone Songs (not attached to any in-progress Campaign) have no
-    cron safety net — this manual refresh is the only path their sounds
-    ever get updated through. So rather than capping the batch and letting
-    "the rest" get picked up automatically (there's nothing to pick it up
-    here), this orders approved sounds by staleness (oldest
-    last_ingested_at first, nulls first) and only processes the top
-    SONG_REFRESH_BATCH_SIZE per call. Repeated manual refreshes naturally
-    rotate through every approved sound over time, each call bounded.
+    This used to also re-run discovery on every call. That made sense
+    while the pipeline was still being built and discovery/refresh hadn't
+    been split into distinct responsibilities yet — now that they have
+    (see initialize_song, refresh_approved_sounds_for_song, and
+    find_new_sounds_for_song in ingestion/service.py), refresh should only
+    ever touch the canonical set, never expand it.
     """
+    from ingestion import service as ingestion_service
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT id FROM songs WHERE id=%s", (song_id,))
+            if not c.fetchone():
+                return jsonify({"error": "Song not found"}), 404
+
+    result = ingestion_service.refresh_approved_sounds_for_song(db, song_id, batch_size=SONG_REFRESH_BATCH_SIZE)
+    return jsonify({"ok": True, **result})
+
+
+@songs_bp.route("/api/songs/<int:song_id>/find_new_sounds", methods=["POST"])
+def find_new_sounds(song_id):
+    """Explicit, user-triggered discovery — expands a song's canonical
+    sound set beyond what was found initially. This is the ONLY place
+    besides initial song creation where discovery should ever run. Capped
+    the same way as everywhere else (qualify processes QUALIFY_BATCH_SIZE
+    candidates per call) to avoid worker timeouts; a song with a large
+    pending backlog may need this called more than once.
+    """
+    from ingestion import service as ingestion_service
     with db() as conn:
         with conn.cursor() as c:
             c.execute("SELECT name, artist FROM songs WHERE id=%s", (song_id,))
@@ -283,50 +348,26 @@ def refresh_song(song_id):
             name = row["name"]
             artist = row["artist"] or ""
 
-    # Step 1: Discover new sounds (won't duplicate existing ones)
-    new_sounds = ingestion.ingest_song_sounds(db, song_id, name, artist)
+    result = ingestion_service.find_new_sounds_for_song(db, song_id, name, artist)
+    return jsonify({"ok": True, "song_id": song_id, **result})
 
-    # Step 2: Pick the STALEST approved sounds first, capped to a safe
-    # batch size — ingest_sound's own freshness check will still skip any
-    # of these that happen to already be fresh (e.g. refreshed by the
-    # discover step above), so this is a ceiling on network calls, not a
-    # guarantee that all of them hit the provider.
-    with db() as conn:
-        with conn.cursor() as c:
-            c.execute("""
-                SELECT id, sound_id
-                FROM sounds
-                WHERE song_id=%s AND status='approved'
-                ORDER BY last_ingested_at ASC NULLS FIRST
-                LIMIT %s
-            """, (song_id, SONG_REFRESH_BATCH_SIZE))
-            sounds = [dict(r) for r in c.fetchall()]
 
-            c.execute("""
-                SELECT COUNT(*) as total FROM sounds
-                WHERE song_id=%s AND status='approved'
-            """, (song_id,))
-            total_approved = c.fetchone()["total"]
+@songs_bp.route("/api/songs/<int:song_id>/requalify", methods=["POST"])
+def requalify_song(song_id):
+    """Re-run ONLY the qualify step for a song's pending sounds — no
+    discovery, no ingest. Use this after fixing/tuning the matching logic
+    to re-judge already-discovered candidates against the corrected rules,
+    without paying for full re-discovery.
 
-    posts_added = 0
-    ingested = 0
-    for s in sounds:
-        result = ingestion.ingest_sound(db, song_id, s["id"], s["sound_id"], max_results=35)
-        posts_added += result.get("posts_added", 0)
-        if not result.get("error"):
-            ingested += 1
-
-    remaining = max(total_approved - len(sounds), 0)
-
-    return jsonify({
-        "ok": True,
-        "new_sounds": len(new_sounds) if new_sounds else 0,
-        "sounds_refreshed": len(sounds),
-        "sounds_ingested": ingested,
-        "posts_added": posts_added,
-        "total_approved_sounds": total_approved,
-        "remaining_stale_sounds": remaining,
-    })
+    Typical flow: reset wrongly-approved sounds back to 'pending' via SQL,
+    then call this to re-classify them under the current rules. Capped to
+    QUALIFY_BATCH_SIZE candidates per call (same cap as everywhere else),
+    so a song with a large pending backlog may need this called more than
+    once to fully clear.
+    """
+    from ingestion import service as ingestion_service
+    result = ingestion_service.qualify_pending_sounds_for_song(db, song_id)
+    return jsonify({"ok": True, "song_id": song_id, **result})
 
 
 @songs_bp.route("/api/songs/<int:song_id>/requalify", methods=["POST"])

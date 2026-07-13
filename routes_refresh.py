@@ -248,7 +248,7 @@ def quick_refresh_song(song_id):
             return jsonify({"ok": False, "error": f"song {song_id} not found"}), 404
 
         logging.info(f"[quick_refresh] starting full pipeline for song {song_id} ('{song['name']}')")
-        result = ingestion_service.run_full_pipeline_for_song(
+        result = ingestion_service.initialize_song(
             db, song_id, song["name"], song["artist"] or ""
         )
         logging.info(f"[quick_refresh] song {song_id} complete: {result}")

@@ -239,21 +239,27 @@ def _artist_signal(author_norm, artist_norm):
     return bool(artist_nospace) and artist_nospace in author_nospace
 
 
-def _classify_sound_match(sound_title, sound_author, song_title, song_artist, video_count=0):
-    """Three-tier relevance check used to GATE approval at qualify time.
+def _classify_sound_match(sound_title, sound_author, song_title, song_artist, video_count=0, discovered_via=None):
+    """Relevance check used to GATE approval at qualify time.
 
-    Tier 1 — artist signal found in author field (substring match, handles
-             concatenated handles) -> approve. Real positive evidence.
-    Tier 2 — no artist signal, but the title carries TikTok's own
-             "original sound - <uploader>" marker (meaning the author
-             field is just an uploader handle, not a credited artist — so
-             its mismatch is NOT counter-evidence), the title is an exact
-             match, AND the sound has real traction (video_count over
-             TIER2_VIDEO_COUNT_THRESHOLD) -> approve.
-    Tier 3 — everything else, including title matches where the author DOES
-             look like a distinct, credited artist that doesn't match
-             song_artist. That's real negative evidence (a different
-             official recording), not just an absence of evidence -> reject.
+    Tier 1 — confirmed artist match AND some real title relation -> approve.
+    Tier 2 (NARROW) — no artist signal, but the candidate was discovered
+             via discovered_via == 'title_artist' specifically (the
+             combined title+artist search — never 'title_only', 'hashtag',
+             'challenge', or missing/legacy data), the title carries
+             TikTok's own "original sound - <uploader>" marker, and the
+             sound has real traction -> approve.
+    Everything else -> reject.
+
+    Why Tier 2 requires discovered_via == 'title_artist' specifically:
+    A previous version approved ANY generic upload with high video_count,
+    regardless of where it came from. That failed catastrophically on
+    "Griddle": the song title collides with an unrelated, massive TikTok
+    dance trend, and the challenge/hashtag crawl pulled in dozens of
+    wildly popular (1M+ video), completely unrelated sounds. Every one got
+    approved on popularity alone — 33 false positives out of 34 approvals
+    for one song. No video_count threshold fixes this on its own, since
+    the false positives themselves had multi-million view counts.
 
     Returns True (approve) or False (reject) — no partial credit.
     """
@@ -288,34 +294,20 @@ def _classify_sound_match(sound_title, sound_author, song_title, song_artist, vi
         return strong_title
 
     # --- Tier 1: confirmed artist match AND some real title relation ---
-    # Artist match ALONE is not enough — an artist can have many songs
-    # (e.g. PlaqueBoyMax has "Thong Song" AND "Pink Dreads" AND others).
-    # Matching the artist only tells you this person is associated with
-    # the sound, not WHICH of their songs it is. Without also requiring a
-    # title relation, a search for "Thong Song" by PlaqueBoyMax would
-    # happily approve "Pink Dreads" by the same artist — a real, different
-    # song. Require both signals together for a Tier 1 approval.
     if _artist_signal(s_author, artist_norm) and (strong_title or title_multiword):
         return True
 
-    # --- Tier 2: generic upload, no competing artist claim ---
-    # A genuinely generic upload's title field is "original sound -
-    # <uploader>" — it NEVER contains the actual song title, so requiring
-    # a title match here is a contradiction in terms (a bug caught by the
-    # regression test suite: this tier silently never fired in production
-    # because is_generic_upload and title_exact can never both be true).
-    # There is no title signal to check for these — the only available
-    # evidence is that this candidate already passed discovery's targeted
-    # search (title/artist/hashtag queries) to even reach qualify, plus
-    # real popularity.
+    # --- Tier 2 (narrow): generic upload, but ONLY from the title_artist search ─
     is_generic_upload = "original sound" in s_title
-    if is_generic_upload and not is_derivative and video_count >= TIER2_VIDEO_COUNT_THRESHOLD:
+    if (
+        is_generic_upload
+        and not is_derivative
+        and discovered_via == "title_artist"
+        and video_count >= TIER2_VIDEO_COUNT_THRESHOLD
+    ):
         return True
 
-    # --- Tier 3: reject ---
-    # Covers: artist matches but title is unrelated (a different song by
-    # the same artist), title matches but a DIFFERENT credited artist owns
-    # it, and low-traction generic uploads.
+    # --- Everything else -> reject ─────────────────────────────────────────
     return False
 
 
@@ -469,11 +461,11 @@ def create_sound(db_conn_factory, song_id, sound):
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("""
-                INSERT INTO sounds (song_id, sound_id, title, author, status)
-                VALUES (%s,%s,%s,%s,'pending')
+                INSERT INTO sounds (song_id, sound_id, title, author, status, discovered_via)
+                VALUES (%s,%s,%s,%s,'pending',%s)
                 ON CONFLICT (song_id, sound_id) DO NOTHING
                 RETURNING id
-            """, (song_id, sound["sound_id"], sound["title"], sound["author"]))
+            """, (song_id, sound["sound_id"], sound["title"], sound["author"], sound.get("discovered_via")))
             row = c.fetchone()
         conn.commit()
     return row["id"] if row else None
@@ -482,17 +474,25 @@ def create_sound(db_conn_factory, song_id, sound):
 def get_or_create_sound(db_conn_factory, song_id, sound):
     """Get existing sound or create new one. Always returns a db id.
     New sounds get status='pending' — monitor decides when to ingest them.
-    Existing sounds keep their current status."""
+    Existing sounds keep their current status.
+
+    discovered_via is only ever set, never overwritten: if a sound was
+    already tagged from an earlier discovery pass, a later rediscovery of
+    the same sound_id keeps the original value — this is a historical
+    record of how we first found it, not something that should shift
+    around on every rediscovery.
+    """
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("""
-                INSERT INTO sounds (song_id, sound_id, title, author, status)
-                VALUES (%s,%s,%s,%s,'pending')
+                INSERT INTO sounds (song_id, sound_id, title, author, status, discovered_via)
+                VALUES (%s,%s,%s,%s,'pending',%s)
                 ON CONFLICT (song_id, sound_id) DO UPDATE SET
                     title=EXCLUDED.title,
-                    author=EXCLUDED.author
+                    author=EXCLUDED.author,
+                    discovered_via=COALESCE(sounds.discovered_via, EXCLUDED.discovered_via)
                 RETURNING id
-            """, (song_id, sound["sound_id"], sound["title"], sound["author"]))
+            """, (song_id, sound["sound_id"], sound["title"], sound["author"], sound.get("discovered_via")))
             row = c.fetchone()
         conn.commit()
     return row["id"] if row else None
@@ -619,6 +619,26 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
     """Aggressive sound discovery using multiple search queries and pagination.
     Goal: find as many legitimate sounds as possible, store all of them.
     Monitoring will decide which ones to track frequently.
+
+    Each candidate is tagged with discovered_via, a permanent record of
+    which search method first surfaced it:
+      'title_artist' — the combined "{title} {artist}" search. Requires
+                        TikTok's own search relevance to match BOTH terms
+                        together — the strongest evidence.
+      'title_only'   — title alone, or a sped-up/slowed/remix variant of
+                        the title. Weaker: a common title can collide with
+                        unrelated content.
+      'hashtag'      — title or artist hashtag search via video search.
+      'challenge'    — the challenge/hashtag crawl. Weakest: this is
+                        exactly where "Griddle" collided with an unrelated
+                        dance trend and pulled in dozens of wildly popular,
+                        completely unrelated sounds.
+
+    This is a historical record ("how did we find this"), not a
+    recomputed confidence score — the classifier always re-derives its
+    own confidence from today's matching logic; discovered_via just
+    answers a question no later recomputation can ever answer: which
+    search actually turned this candidate up in the first place.
     """
     # Multiple search queries to maximize coverage
     title_clean = title.strip()
@@ -630,34 +650,61 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
     title_hashtag = "#" + title_clean.lower().replace(" ", "")
     artist_hashtag = "#" + artist_clean.lower().replace(" ", "") if artist_clean else ""
 
-    queries = list(dict.fromkeys(filter(None, [
-        f"{title_clean} {artist_clean}".strip(),
+    targeted_query = f"{title_clean} {artist_clean}".strip() if artist_clean else ""
+
+    title_only_queries = list(dict.fromkeys(filter(None, [
         title_clean,
-        title_hashtag,
-        artist_hashtag,
         f"{title_clean} sped up",
         f"{title_clean} slowed",
         f"{title_clean} remix",
     ])))
 
+    hashtag_queries = list(dict.fromkeys(filter(None, [
+        title_hashtag,
+        artist_hashtag,
+    ])))
+
     seen_ids = set()
     all_sounds = []
 
-    # Method 1: Video search
-    for query in queries:
+    # 'title_artist' — the combined query, strongest evidence
+    if targeted_query:
+        sounds = discover_sounds_from_videos(targeted_query)
+        for s in sounds:
+            sid = s.get("sound_id")
+            if sid and sid not in seen_ids:
+                seen_ids.add(sid)
+                s["discovered_via"] = "title_artist"
+                all_sounds.append(s)
+
+    # 'title_only' — title alone or a derivative-title variant
+    for query in title_only_queries:
         sounds = discover_sounds_from_videos(query)
         for s in sounds:
             sid = s.get("sound_id")
             if sid and sid not in seen_ids:
                 seen_ids.add(sid)
+                s["discovered_via"] = "title_only"
                 all_sounds.append(s)
 
-    # Method 2: Challenge/hashtag crawl (finds many more sounds)
+    # 'hashtag' — hashtag search via video search endpoint
+    for query in hashtag_queries:
+        sounds = discover_sounds_from_videos(query)
+        for s in sounds:
+            sid = s.get("sound_id")
+            if sid and sid not in seen_ids:
+                seen_ids.add(sid)
+                s["discovered_via"] = "hashtag"
+                all_sounds.append(s)
+
+    # 'challenge' — the challenge/hashtag crawl, weakest evidence (this is
+    # the source of the Griddle dance-trend contamination)
     challenge_sounds = discover_sounds_from_challenge(title, artist)
     for s in challenge_sounds:
         sid = s.get("sound_id")
         if sid and sid not in seen_ids:
             seen_ids.add(sid)
+            s["discovered_via"] = "challenge"
             all_sounds.append(s)
 
     _log(f"discover_song_sounds: {len(all_sounds)} unique sounds from search + challenge crawl")
@@ -877,35 +924,44 @@ def ingest_campaign_attached_sound(db_conn_factory, campaign_id, tiktok_sound_id
     return added
 # ── New: consolidated per-song pipeline (discover -> qualify -> ingest posts) ──
 
-def qualify_pending_sounds_for_song(db_conn_factory, song_id, batch_size=QUALIFY_BATCH_SIZE):
-    """Check up to `batch_size` pending sounds for one song — ranked by
-    relevance score first — and promote to approved/inactive based on
-    video_count + a tiered relevance check (see _classify_sound_match).
-    This is the SAME logic as /api/refresh/qualify, extracted here so both
-    the cron route and the instant per-song pipeline share one
-    implementation instead of drifting apart.
+def qualify_pending_sounds_for_song(db_conn_factory, song_id, auto_approve=True):
+    """Check up to QUALIFY_BATCH_SIZE pending sounds for one song — ranked
+    by relevance score first — and evaluate each against
+    _classify_sound_match. This is the SAME logic as /api/refresh/qualify,
+    extracted here so both the cron route and the instant per-song
+    pipeline share one implementation instead of drifting apart.
+
+    auto_approve controls what happens to a candidate the classifier
+    considers a real match:
+      True  (default) — status becomes 'approved' immediately. Used for
+             initial song creation and for requalify (re-judging existing
+             candidates under corrected logic — a maintenance/correction
+             action, not a "discover something brand new" action).
+      False — status STAYS 'pending', awaiting a human's explicit
+              approval via /api/sounds/<id>/approve. Used by
+              find_new_sounds_for_song: a song's canonical set should
+              never silently grow just because a later discovery pass
+              found something. Clear junk is still auto-rejected to
+              'inactive' either way — only genuine candidates require a
+              human decision, so the review queue stays small.
 
     IMPORTANT: this used to process EVERY pending sound for a song in one
     call. A song can have 200-400+ pending candidates after discovery
     (common titles + hashtag/challenge crawling produce huge candidate
     lists), and calling the provider once per sound inside a single
     synchronous HTTP request doesn't scale — gunicorn's worker timeout
-    killed the request partway through and crashed the worker, leaving
-    the song half-approved, half-pending, and forcing repeated retries
-    that hit the same wall.
+    killed the request partway through and crashed the worker.
 
     Fix: rank pending sounds by _score_sound (using the title/author
     already stored from discovery — no extra provider calls needed just
-    to rank) and only make provider calls for the top `batch_size`
-    candidates. The real match is almost always near the top of that
-    ranking. Everything past the batch stays 'pending' and gets picked up
-    by the next hourly monitor/qualify cron cycle instead of blocking
-    this request.
+    to rank) and only make provider calls for the top QUALIFY_BATCH_SIZE
+    candidates. Everything past the batch stays 'pending' and gets picked
+    up by a future call.
     """
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("""
-                SELECT snd.id, snd.sound_id, snd.title, snd.author
+                SELECT snd.id, snd.sound_id, snd.title, snd.author, snd.discovered_via
                 FROM sounds snd
                 WHERE snd.song_id = %s AND snd.status = 'pending'
             """, (song_id,))
@@ -921,15 +977,17 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id, batch_size=QUALIFY
         return _score_sound({"title": s.get("title"), "author": s.get("author")}, song_name, song_artist)
 
     pending_sorted = sorted(pending, key=rank_key, reverse=True)
-    batch = pending_sorted[:batch_size]
+    batch = pending_sorted[:QUALIFY_BATCH_SIZE]
     remaining = len(pending_sorted) - len(batch)
 
-    _log(f"qualifying {len(pending_sorted)} pending sounds for song {song_id} (batch_size={batch_size})")
+    _log(f"qualifying {len(pending_sorted)} pending sounds for song {song_id} "
+         f"(batch_size={QUALIFY_BATCH_SIZE}, auto_approve={auto_approve})")
     if remaining > 0:
         _log(f"qualify_pending_sounds_for_song: song {song_id} has {len(pending_sorted)} pending — "
              f"processing top {len(batch)} this call, leaving {remaining} for next cron cycle")
 
     approved = 0
+    awaiting_review = 0
     inactive = 0
 
     for s in batch:
@@ -953,9 +1011,16 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id, batch_size=QUALIFY
                 if video_count == 0:
                     new_status = "inactive"
                 else:
-                    is_relevant = _classify_sound_match(title, author, song_name, song_artist, video_count)
-                    new_status = "approved" if is_relevant else "inactive"
-                    _log(f"  sound {s['id']} '{title}' by '{author}' video_count={video_count} relevant={is_relevant} -> {new_status}")
+                    is_relevant = _classify_sound_match(
+                        title, author, song_name, song_artist, video_count,
+                        discovered_via=s.get("discovered_via")
+                    )
+                    if is_relevant:
+                        new_status = "approved" if auto_approve else "pending"
+                    else:
+                        new_status = "inactive"
+                    _log(f"  sound {s['id']} '{title}' by '{author}' video_count={video_count} "
+                         f"discovered_via={s.get('discovered_via')} relevant={is_relevant} -> {new_status}")
 
             with db_conn_factory() as conn:
                 with conn.cursor() as c:
@@ -970,13 +1035,22 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id, batch_size=QUALIFY
 
             if new_status == "approved":
                 approved += 1
+            elif new_status == "pending":
+                awaiting_review += 1
             else:
                 inactive += 1
         except Exception as e:
             _log(f"qualify_pending_sounds_for_song: failed on sound {s['id']}: {e}")
 
-    _log(f"qualify_pending_sounds_for_song: song {song_id} — {approved} approved, {inactive} inactive, {remaining} still pending")
-    return {"approved": approved, "inactive": inactive, "checked": len(batch), "remaining_pending": remaining}
+    _log(f"qualify_pending_sounds_for_song: song {song_id} — {approved} approved, "
+         f"{awaiting_review} awaiting review, {inactive} inactive, {remaining} still pending")
+    return {
+        "approved": approved,
+        "awaiting_review": awaiting_review,
+        "inactive": inactive,
+        "checked": len(batch),
+        "remaining_pending": remaining,
+    }
 
 
 def ingest_approved_sounds_for_song(db_conn_factory, song_id, max_results=30):
@@ -1005,23 +1079,109 @@ def ingest_approved_sounds_for_song(db_conn_factory, song_id, max_results=30):
     return {"sounds_found": len(sounds), "sounds_ingested": ingested, "posts_added": posts_added}
 
 
-def run_full_pipeline_for_song(db_conn_factory, song_id, name, artist=""):
-    """The one call the frontend should make right after adding a song:
-    discover -> qualify -> ingest posts, all synchronously, all scoped to
-    this one song. This is what makes 'add song, it just appears' true.
+def initialize_song(db_conn_factory, song_id, name, artist=""):
+    """Runs ONCE per song, at creation time: discover -> qualify (auto-
+    approving high-confidence matches) -> ingest. This is what establishes
+    a song's initial canonical sound set and makes 'add song, it just
+    appears' true.
 
-    Note: qualify is now capped to QUALIFY_BATCH_SIZE candidates per call
-    (see qualify_pending_sounds_for_song). For songs with a huge pending
-    list, some sounds will remain 'pending' after this call returns and
-    get processed by the next hourly cron cycle instead — this trades a
-    small amount of initial completeness for the pipeline actually
-    finishing instead of timing out and crashing the worker."""
+    Auto-approval is appropriate here specifically because a brand new
+    song has zero canonical sounds yet — it needs SOME starting set to be
+    useful at all. Contrast with find_new_sounds_for_song, which expands
+    an EXISTING canonical set and deliberately does NOT auto-approve (see
+    that function for why).
+
+    IMPORTANT: this must NEVER be called by a routine refresh action.
+    Discovery is expensive (dozens of search API calls); refresh should
+    only touch a song's already-approved (canonical) sounds — see
+    refresh_approved_sounds_for_song.
+    """
     discovered = discover_song_sounds(db_conn_factory, song_id, name, artist or "")
-    qualify_result = qualify_pending_sounds_for_song(db_conn_factory, song_id)
+    qualify_result = qualify_pending_sounds_for_song(db_conn_factory, song_id, auto_approve=True)
     ingest_result = ingest_approved_sounds_for_song(db_conn_factory, song_id)
 
     return {
         "sounds_discovered": len(discovered),
         "qualify": qualify_result,
         "ingest": ingest_result,
+    }
+
+
+def refresh_approved_sounds_for_song(db_conn_factory, song_id, batch_size=15):
+    """Routine refresh — operates EXCLUSIVELY on a song's already-approved
+    (canonical) sounds. Updates posts, view/like counts, and creator data.
+    Never discovers new candidates, never re-runs qualify. This is the
+    ONLY thing a 'Refresh' button should ever do.
+
+    Capped to the `batch_size` stalest approved sounds per call (oldest
+    last_ingested_at first) — a song can have many approved sounds, and
+    processing all of them synchronously risks the same worker-timeout
+    crashes discovery caused. Repeated refresh calls naturally rotate
+    through every approved sound over time. ingest_sound's own freshness
+    cache means sounds refreshed recently are skipped cheaply (a DB read,
+    no network call) rather than needlessly re-fetched.
+    """
+    with db_conn_factory() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                SELECT id, sound_id
+                FROM sounds
+                WHERE song_id=%s AND status='approved'
+                ORDER BY last_ingested_at ASC NULLS FIRST
+                LIMIT %s
+            """, (song_id, batch_size))
+            sounds = [dict(r) for r in c.fetchall()]
+
+            c.execute("""
+                SELECT COUNT(*) as total FROM sounds
+                WHERE song_id=%s AND status='approved'
+            """, (song_id,))
+            total_approved = c.fetchone()["total"]
+
+    posts_added = 0
+    ingested = 0
+    for s in sounds:
+        result = ingest_sound(db_conn_factory, song_id, s["id"], s["sound_id"], max_results=35)
+        posts_added += result.get("posts_added", 0)
+        if not result.get("error"):
+            ingested += 1
+
+    remaining = max(total_approved - len(sounds), 0)
+
+    _log(f"refresh_approved_sounds_for_song: song {song_id} — {ingested}/{len(sounds)} sounds refreshed, "
+         f"{posts_added} posts added, {remaining} still stale (of {total_approved} total approved)")
+
+    return {
+        "sounds_refreshed": len(sounds),
+        "sounds_ingested": ingested,
+        "posts_added": posts_added,
+        "total_approved_sounds": total_approved,
+        "remaining_stale_sounds": remaining,
+    }
+
+
+def find_new_sounds_for_song(db_conn_factory, song_id, name, artist=""):
+    """The explicit 'Find New Sounds' action — deliberately, separately
+    triggered by the user, never automatic. Runs discovery again (won't
+    duplicate existing sound rows) and evaluates any newly-found pending
+    candidates against the classifier, but does NOT auto-approve them —
+    a song's canonical (approved) sound set should not silently grow or
+    change just because a later discovery pass turned something up.
+
+    Clear junk still gets auto-rejected to 'inactive' (no point making a
+    human wade through hundreds of obvious non-matches), but anything the
+    classifier considers a real match is left 'pending', waiting for a
+    human to explicitly approve it via /api/sounds/<id>/approve. This is
+    the design decision from the "should new discoveries silently expand
+    the canonical set" question — they don't, ever, without a human click.
+
+    Existing approved sounds are never touched by this function — new
+    candidates are additive to the pending pool only.
+    """
+    discovered = discover_song_sounds(db_conn_factory, song_id, name, artist or "")
+    qualify_result = qualify_pending_sounds_for_song(db_conn_factory, song_id, auto_approve=False)
+
+    return {
+        "sounds_discovered": len(discovered),
+        "qualify": qualify_result,
     }
