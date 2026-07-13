@@ -12,6 +12,7 @@ Known deferred improvements:
   - Result objects are not yet standardized across all functions
 """
 
+import os
 from datetime import date, datetime, timezone
 from .providers import default_provider as provider
 from .tiklive_provider import TikLiveAPIProvider as _TikLiveProvider
@@ -1005,13 +1006,64 @@ def ingest_roster_account(db_conn_factory, username):
 
 
 def ingest_fan_account(db_conn_factory, username):
-    """Pull stats for a plain (non-roster) tracked fan account, plus its recent posts."""
-    raw = provider.get_account(username)
-    account = parse_account_stats(raw)
-    if not account:
+    """Pull stats for a plain (non-roster) tracked fan account, plus its
+    recent posts.
+
+    IMPORTANT: this deliberately does NOT go through provider.get_account
+    / provider.get_account_posts (the multi-provider pipeline used
+    elsewhere in this file, which tries TikLive first). That pipeline has
+    a known gap for this specific use case: TikLiveAPIProvider's
+    get_account_posts requires a NUMERIC user ID, while a standard TikTok
+    secUid is a long alphanumeric string — so for most accounts, TikLive's
+    posts call silently returns nothing, and the pipeline has to fall
+    through to TikAPI as a backup. That fallback had never actually been
+    verified end-to-end for a real account before this feature shipped.
+
+    Instead, this calls TikAPI directly — the exact same endpoints,
+    parameters, and field names as a separate, already-proven prototype
+    tool that's been confirmed working in production. Rather than trust
+    an abstraction layer for something this important, fan-account
+    ingestion uses the exact logic already known to work.
+    """
+    import requests as _requests
+
+    tikapi_key = os.environ.get("TIKAPI_KEY", "")
+    headers = {
+        "X-API-KEY": tikapi_key,
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    }
+
+    r = _requests.get(
+        "https://api.tikapi.io/public/check",
+        params={"username": username}, headers=headers, timeout=15
+    )
+    _log(f"TikAPI {r.status_code} for @{username}")
+    if r.status_code != 200:
+        _log(f"  {r.text[:300]}")
         return False
 
+    data = r.json()
+    info = data.get("userInfo", {})
+    user = info.get("user", {})
+    s = info.get("statsV2", info.get("stats", {}))
+    sec_uid = user.get("secUid")
+
+    followers = int(s.get("followerCount", 0))
+    total_likes = int(s.get("heartCount", 0))
+    video_count = int(s.get("videoCount", 0))
     today = date.today()
+
+    # DIAGNOSTIC: if we got a secUid (proving the response parsed at all)
+    # but every stat came back zero, something about this response's
+    # actual shape doesn't match what we're reading — log the raw
+    # response so the NEXT time this happens we can see exactly what
+    # TikAPI actually sent back, instead of guessing at field names.
+    if sec_uid and followers == 0 and total_likes == 0 and video_count == 0:
+        _log(f"⚠ @{username}: got secUid but all stats are zero. "
+             f"info keys: {list(info.keys())}, user keys: {list(user.keys())}, "
+             f"stats dict used: {s}, full statsV2: {info.get('statsV2')}, "
+             f"full stats: {info.get('stats')}")
+
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("""
@@ -1019,17 +1071,21 @@ def ingest_fan_account(db_conn_factory, username):
                 VALUES (%s,%s,%s,%s,%s)
                 ON CONFLICT (username, date) DO UPDATE SET
                     followers=EXCLUDED.followers, likes=EXCLUDED.likes, videos=EXCLUDED.videos
-            """, (username, today, account["followers"], account["total_likes"], account["video_count"]))
+            """, (username, today, followers, total_likes, video_count))
         conn.commit()
 
-    if account["sec_uid"]:
+    if sec_uid:
         try:
-            raw_posts = provider.get_account_posts(account["sec_uid"], count=10)
-            posts = parse_posts_from_user_feed(raw_posts)
-            if posts:
+            r2 = _requests.get(
+                "https://api.tikapi.io/public/posts",
+                params={"secUid": sec_uid, "count": 10}, headers=headers, timeout=15
+            )
+            if r2.status_code == 200:
+                items = r2.json().get("itemList") or r2.json().get("items") or []
                 with db_conn_factory() as conn:
                     with conn.cursor() as c:
-                        for p in posts:
+                        for item in items:
+                            ps = item.get("stats", {})
                             c.execute("""
                                 INSERT INTO posts (post_id, date, username, description, views, likes, comments, saves, created_at, followers_at_post)
                                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
@@ -1038,16 +1094,17 @@ def ingest_fan_account(db_conn_factory, username):
                                     comments=EXCLUDED.comments, saves=EXCLUDED.saves,
                                     followers_at_post=EXCLUDED.followers_at_post
                             """, (
-                                p["post_id"], today, username,
-                                p.get("description", "")[:300],
-                                p.get("views", 0), p.get("likes", 0),
-                                p.get("comments", 0), p.get("saves", 0),
-                                p.get("created_at"), account["followers"]
+                                item.get("id"), today, username,
+                                item.get("desc", "")[:300],
+                                ps.get("playCount", 0), ps.get("diggCount", 0),
+                                ps.get("commentCount", 0), ps.get("collectCount", 0),
+                                item.get("createTime"), followers
                             ))
                     conn.commit()
         except Exception as e:
             _log(f"get_account_posts failed for @{username}: {e} — skipping posts")
-    _log(f"✓ ingested fan account @{username} — {account['followers']:,} followers")
+
+    _log(f"✓ ingested fan account @{username} — {followers:,} followers")
     return True
 
 

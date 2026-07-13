@@ -72,7 +72,7 @@
   .dhead h2 { font-size: 18px; font-weight: 700; }
   .tiktok-link { color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 600; }
   .tiktok-link:hover { text-decoration: underline; }
-  .srow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .srow { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 20px; }
   .sbox { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
   .sbox .l { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
   .sbox .v { font-size: 22px; font-weight: 800; margin-top: 5px; letter-spacing: -0.5px; }
@@ -122,10 +122,12 @@
       <div class="sbox"><div class="l">Total Likes</div><div class="v" id="dl">-</div></div>
       <div class="sbox"><div class="l">Videos</div><div class="v" id="dv">-</div></div>
       <div class="sbox"><div class="l">Avg Views</div><div class="v" id="da">-</div></div>
+      <div class="sbox"><div class="l">Total Views (tracked)</div><div class="v" id="dtv">-</div></div>
+      <div class="sbox"><div class="l">Avg Engagement</div><div class="v" id="deng">-</div></div>
     </div>
     <div class="section-label">Recent Posts</div>
     <table>
-      <thead><tr><th>Date</th><th>Description</th><th>Followers at Post</th><th>Views</th><th>Likes</th><th>Comments</th></tr></thead>
+      <thead><tr><th>Date</th><th>Description</th><th>Followers at Post</th><th>Views</th><th>Likes</th><th>Comments</th><th>Saves</th><th>Shares</th><th>Eng%</th><th></th></tr></thead>
       <tbody id="ptb"></tbody>
     </table>
   </div>
@@ -220,18 +222,31 @@ function show(u) {
   const posts = D.posts.filter(function(p) { return p.username === u; }).sort(function(a,b) { return (b.created_at||0)-(a.created_at||0); });
   const avg = posts.length ? posts.reduce(function(a,p) { return a+(p.views||0); }, 0) / posts.length : 0;
   document.getElementById('da').textContent = fmt(Math.round(avg));
+
+  const totalViews = posts.reduce(function(a,p) { return a+(p.views||0); }, 0);
+  document.getElementById('dtv').textContent = fmt(totalViews);
+  const totalEngActions = posts.reduce(function(a,p) { return a+(p.likes||0)+(p.comments||0)+(p.saves||0); }, 0);
+  const avgEng = totalViews > 0 ? (totalEngActions / totalViews * 100) : 0;
+  document.getElementById('deng').textContent = posts.length ? avgEng.toFixed(1) + '%' : '-';
+
   const tb = document.getElementById('ptb');
-  if (!posts.length) { tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:24px;">No posts yet - hit Refresh All.</td></tr>'; return; }
+  if (!posts.length) { tb.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:24px;">No posts yet - hit Refresh All.</td></tr>'; return; }
   tb.innerHTML = posts.map(function(p) {
     const hot = avg > 0 && p.views >= 2*avg;
     const d = p.created_at ? new Date(p.created_at*1000).toLocaleDateString() : p.date;
+    const eng = p.views > 0 ? ((p.likes||0)+(p.comments||0)+(p.saves||0)) / p.views * 100 : 0;
+    const videoUrl = 'https://www.tiktok.com/@' + u + '/video/' + p.post_id;
     return '<tr>' +
-      '<td><a class="tiktok-link" href="https://www.tiktok.com/@' + u + '/video/' + p.post_id + '" target="_blank">' + d + '</a></td>' +
+      '<td>' + d + (hot ? '<span class="badge">2x</span>' : '') + '</td>' +
       '<td class="desc" title="' + (p.description||'').replace(/"/g,'') + '">' + (p.description || '-') + '</td>' +
       '<td>' + fmt(p.followers_at_post) + '</td>' +
-      '<td>' + fmt(p.views) + (hot ? '<span class="badge">2x</span>' : '') + '</td>' +
+      '<td>' + fmt(p.views) + '</td>' +
       '<td>' + fmt(p.likes) + '</td>' +
       '<td>' + fmt(p.comments) + '</td>' +
+      '<td>' + fmt(p.saves) + '</td>' +
+      '<td>' + fmt(p.shares) + '</td>' +
+      '<td>' + eng.toFixed(2) + '%</td>' +
+      '<td><a class="tiktok-link" href="' + videoUrl + '" target="_blank">View &#8599;</a></td>' +
       '</tr>';
   }).join('');
   document.getElementById('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
