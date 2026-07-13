@@ -19,6 +19,8 @@
     --success-bg: #ecfdf5;
     --danger: #dc2626;
     --danger-bg: #fef2f2;
+    --warning: #d97706;
+    --warning-bg: #fffbeb;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -37,7 +39,16 @@
   .song-title { font-size: 30px; font-weight: 800; letter-spacing: -0.8px; }
   .song-artist { font-size: 14px; color: var(--text-muted); margin-top: 5px; font-weight: 500; }
 
-  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 32px; }
+  .header-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  .btn-secondary {
+    font-size: 13px; font-family: inherit; padding: 8px 16px; border-radius: 8px;
+    border: 1px solid var(--border); background: none; color: var(--text-secondary);
+    cursor: pointer; white-space: nowrap;
+  }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-secondary:disabled { opacity: .6; cursor: default; }
+
+  .stat-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 32px; }
   .stat-box {
     background: white; border: 1px solid var(--border);
     border-radius: 14px; padding: 20px 22px;
@@ -47,6 +58,7 @@
   .stat-clickable { cursor: pointer; }
   .stat-clickable:hover { border-color: var(--accent); box-shadow: 0 2px 12px rgba(99,102,241,.1); }
   .stat-clickable.open { border-color: var(--accent); background: var(--accent-light); }
+  .stat-box.has-pending { border-color: var(--warning); }
   .chevron { font-size: 10px; color: var(--text-muted); margin-left: 4px; transition: transform .2s; display: inline-block; }
   .chevron.rotated { transform: rotate(180deg); }
 
@@ -73,6 +85,7 @@
   .stat-box .label { font-size: 11px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
   .stat-box .value { font-size: 28px; font-weight: 800; margin-top: 8px; letter-spacing: -0.5px; }
   .stat-box .value.accent { color: var(--accent); }
+  .stat-box .value.warning { color: var(--warning); }
 
   .section-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
   .section-title { font-size: 15px; font-weight: 700; color: var(--text-primary); }
@@ -138,6 +151,32 @@
   .delete-btn { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; padding: 6px 8px; border-radius: 8px; margin-left: 12px; }
   .delete-btn:hover { background: var(--danger-bg); color: var(--danger); }
 
+  /* Pending review panel */
+  .pending-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; border-radius: 12px;
+    border: 1px solid var(--border); background: white;
+  }
+  .pending-row + .pending-row { margin-top: 8px; }
+  .pending-info { flex: 1; min-width: 0; padding-right: 12px; }
+  .pending-title { font-size: 14px; font-weight: 600; }
+  .pending-meta { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+  .pending-source-badge {
+    display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .4px; padding: 2px 7px; border-radius: 5px;
+    background: var(--border-light); color: var(--text-secondary); margin-left: 6px;
+  }
+  .pending-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .btn-approve, .btn-reject {
+    font-size: 12px; font-family: inherit; font-weight: 600;
+    padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer;
+  }
+  .btn-approve { background: var(--success-bg); color: var(--success); }
+  .btn-approve:hover { background: var(--success); color: white; }
+  .btn-reject { background: var(--danger-bg); color: var(--danger); }
+  .btn-reject:hover { background: var(--danger); color: white; }
+  .btn-approve:disabled, .btn-reject:disabled { opacity: .5; cursor: default; }
+
   .empty { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 14px; line-height: 1.8; }
   .loading { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 14px; }
   .no-results { padding: 40px 20px; text-align: center; color: var(--text-muted); font-size: 14px; }
@@ -163,7 +202,10 @@
       <div class="song-title" id="song-title">Loading...</div>
       <div class="song-artist" id="song-artist"></div>
     </div>
-    <button id="refresh-btn" onclick="refreshSong()" style="font-size:13px;font-family:inherit;padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text-secondary);cursor:pointer;margin-top:4px;white-space:nowrap;">↻ Refresh</button>
+    <div class="header-actions">
+      <button id="find-new-btn" class="btn-secondary" onclick="findNewSounds()">🔍 Find New Sounds</button>
+      <button id="refresh-btn" class="btn-secondary" onclick="refreshSong()">↻ Refresh</button>
+    </div>
   </div>
 
   <div class="stat-row">
@@ -177,6 +219,10 @@
       <div class="value" id="stat-creators">—</div>
     </div>
     <div class="stat-box"><div class="label">Posts Tracked</div><div class="value" id="stat-posts">—</div></div>
+    <div class="stat-box stat-clickable" onclick="togglePanel('pending-panel')" id="box-pending">
+      <div class="label">Pending Review <span class="chevron" id="chev-pending">↓</span></div>
+      <div class="value" id="stat-pending">—</div>
+    </div>
   </div>
 
   <!-- Sounds panel -->
@@ -187,6 +233,16 @@
   <!-- Creators panel -->
   <div class="expand-panel" id="creators-panel">
     <div class="creators-list" id="creators-list"></div>
+  </div>
+
+  <!-- Pending review panel — candidates found by Find New Sounds, awaiting
+       manual approve/reject. Never auto-approved; see find_new_sounds_for_song
+       in ingestion/service.py for why. -->
+  <div class="expand-panel" id="pending-panel">
+    <div style="padding: 12px 18px; border-bottom: 1px solid var(--border-light); font-size: 12px; color: var(--text-muted);">
+      These sounds were found by "Find New Sounds" but haven't been added to the canonical set yet. Review each one and approve or reject.
+    </div>
+    <div class="sounds-list" id="pending-list-inline" style="padding: 12px 18px;"></div>
   </div>
 
   <div id="ai-insight" style="display:none; background:#eef2ff; border:1px solid #c7d2fe; border-radius:12px; padding:16px 20px; margin-bottom:24px; font-size:14px; line-height:1.7; color:#3730a3;">
@@ -262,11 +318,9 @@ function renderPostsGrid() {
 
   let posts = [...allPosts];
   if (currentFilter === 'today') {
-    // Last 48 hours
     const cutoff = Date.now()/1000 - (48 * 3600);
     posts = posts.filter(function(p) { return parseInt(p.created_at) >= cutoff; });
   } else if (currentFilter === 'week') {
-    // Filter by TikTok post date — last 7 days
     const cutoff = (Date.now() / 1000) - (7 * 86400);
     posts = posts.filter(function(p) {
       return parseInt(p.created_at) >= cutoff;
@@ -319,7 +373,6 @@ async function load() {
   allPosts = data.top_posts || [];
   renderPostsGrid();
 
-  // Load AI insight asynchronously — non-blocking
   fetch('/api/songs/' + songId + '/insight')
     .then(function(r) { return r.json(); })
     .then(function(d) {
@@ -328,9 +381,10 @@ async function load() {
         document.getElementById('ai-insight').style.display = 'block';
       }
     })
-    .catch(function() {}); // fail silently
+    .catch(function() {});
   renderSoundsPanel(sounds);
   renderCreatorsPanel(allPosts);
+  loadPendingReview();
 }
 
 async function deleteSound(id) {
@@ -342,24 +396,21 @@ async function deleteSound(id) {
 function togglePanel(panelId) {
   const panel = document.getElementById(panelId);
   const isOpen = panel.classList.contains('open');
-  // Close all panels first
   document.querySelectorAll('.expand-panel').forEach(p => p.classList.remove('open'));
   document.querySelectorAll('.stat-clickable').forEach(b => b.classList.remove('open'));
   document.querySelectorAll('.chevron').forEach(c => c.classList.remove('rotated'));
-  // Open clicked one if it was closed
   if (!isOpen) {
     panel.classList.add('open');
-    const boxId = panelId === 'sounds-panel' ? 'box-sounds' : 'box-creators';
-    const chevId = panelId === 'sounds-panel' ? 'chev-sounds' : 'chev-creators';
-    document.getElementById(boxId).classList.add('open');
-    document.getElementById(chevId).classList.add('rotated');
+    const boxMap = { 'sounds-panel': 'box-sounds', 'creators-panel': 'box-creators', 'pending-panel': 'box-pending' };
+    const chevMap = { 'sounds-panel': 'chev-sounds', 'creators-panel': 'chev-creators', 'pending-panel': 'chev-pending' };
+    document.getElementById(boxMap[panelId]).classList.add('open');
+    document.getElementById(chevMap[panelId]).classList.add('rotated');
   }
 }
 
 function renderSoundsPanel(sounds) {
   const el = document.getElementById('sounds-list-inline');
   if (!sounds.length) { el.innerHTML = '<div class="empty">No sounds tracked yet.</div>'; return; }
-  // Sort by velocity descending
   const sorted = [...sounds].sort((a,b) => (parseFloat(b.velocity)||0) - (parseFloat(a.velocity)||0));
   el.innerHTML = sorted.map(s => {
     const vel = parseFloat(s.velocity) || 0;
@@ -401,6 +452,88 @@ function renderCreatorsPanel(posts) {
   `).join('');
 }
 
+async function loadPendingReview() {
+  try {
+    const res = await fetch(`/api/songs/${songId}/pending_review`);
+    const pending = res.ok ? await res.json() : [];
+    document.getElementById('stat-pending').textContent = pending.length;
+    document.getElementById('box-pending').classList.toggle('has-pending', pending.length > 0);
+    renderPendingPanel(pending);
+  } catch (e) {
+    document.getElementById('stat-pending').textContent = '0';
+  }
+}
+
+function renderPendingPanel(pending) {
+  const el = document.getElementById('pending-list-inline');
+  if (!pending.length) {
+    el.innerHTML = '<div class="empty">No candidates awaiting review. Click "Find New Sounds" above to search for more.</div>';
+    return;
+  }
+  el.innerHTML = pending.map(s => `
+    <div class="pending-row" id="pending-row-${s.id}">
+      <div class="pending-info">
+        <div class="pending-title">${escapeHtml(s.title || 'Unknown sound')}<span class="pending-source-badge">${escapeHtml(s.discovered_via || 'unknown')}</span></div>
+        <div class="pending-meta">${escapeHtml(s.author || '')} · ${fmt(s.current_video_count)} videos</div>
+      </div>
+      <div class="pending-actions">
+        <button class="btn-approve" onclick="approvePending(${s.id})">Approve</button>
+        <button class="btn-reject" onclick="rejectPending(${s.id})">Reject</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function approvePending(soundDbId) {
+  const row = document.getElementById(`pending-row-${soundDbId}`);
+  const buttons = row ? row.querySelectorAll('button') : [];
+  buttons.forEach(b => b.disabled = true);
+  try {
+    await fetch(`/api/sounds/${soundDbId}/approve`, { method: 'POST' });
+    await load();
+  } catch (e) {
+    buttons.forEach(b => b.disabled = false);
+  }
+}
+
+async function rejectPending(soundDbId) {
+  const row = document.getElementById(`pending-row-${soundDbId}`);
+  const buttons = row ? row.querySelectorAll('button') : [];
+  buttons.forEach(b => b.disabled = true);
+  try {
+    await fetch(`/api/sounds/${soundDbId}/reject`, { method: 'POST' });
+    await loadPendingReview();
+  } catch (e) {
+    buttons.forEach(b => b.disabled = false);
+  }
+}
+
+async function findNewSounds() {
+  const btn = document.getElementById('find-new-btn');
+  btn.textContent = 'Searching...';
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/songs/${songId}/find_new_sounds`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      const found = (data.qualify && data.qualify.awaiting_review) || 0;
+      btn.textContent = found > 0 ? `✓ Found ${found} new` : '✓ Nothing new';
+      await loadPendingReview();
+      if (found > 0 && !document.getElementById('pending-panel').classList.contains('open')) {
+        togglePanel('pending-panel');
+      }
+    } else {
+      btn.textContent = '🔍 Find New Sounds';
+    }
+  } catch (e) {
+    btn.textContent = '🔍 Find New Sounds';
+  }
+  setTimeout(function() {
+    btn.textContent = '🔍 Find New Sounds';
+    btn.disabled = false;
+  }, 2500);
+}
+
 async function refreshSong() {
   const btn = document.getElementById('refresh-btn');
   btn.textContent = 'Refreshing...';
@@ -425,7 +558,6 @@ async function refreshSong() {
   }
 }
 
-// Fix back button to return to originating campaign
 const _params = new URLSearchParams(window.location.search);
 const _fromCampaign = _params.get('from');
 if (_fromCampaign) {
