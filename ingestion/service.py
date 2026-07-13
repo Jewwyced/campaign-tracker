@@ -1221,10 +1221,54 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id, auto_approve=True)
                         title, author, song_name, song_artist, video_count,
                         discovered_via=s.get("discovered_via")
                     )
-                    if is_relevant:
-                        new_status = "approved" if auto_approve else "pending"
+                    if auto_approve:
+                        new_status = "approved" if is_relevant else "inactive"
                     else:
-                        new_status = "inactive"
+                        # Find New Sounds — three buckets, not two:
+                        #   Auto Reject  -> fails _is_plausible_candidate
+                        #                   entirely (no title or artist
+                        #                   relation at all) -> inactive,
+                        #                   regardless of video_count. This
+                        #                   is the SAME bar that already
+                        #                   keeps discovery clean, reapplied
+                        #                   here with fresh, API-verified
+                        #                   title/author — also correctly
+                        #                   re-rejects any stale pending
+                        #                   rows left over from before that
+                        #                   filter existed.
+                        #   Needs Review -> passes the plausibility bar but
+                        #                   doesn't clear qualify's strict
+                        #                   Tier 1 bar -> pending, for a
+                        #                   human to judge (remixes by
+                        #                   unconfirmed uploaders, generic
+                        #                   reposts with no artist
+                        #                   confirmation, etc).
+                        #   Auto Approve -> handled above when auto_approve
+                        #                   is True; never reachable here.
+                        if is_relevant:
+                            new_status = "pending"
+                        else:
+                            # Sole gate for human review: the same
+                            # plausibility bar discovery already uses.
+                            # A video-count-based exception for zero-
+                            # signal generic uploads was considered and
+                            # deliberately NOT added — popularity is not
+                            # evidence of identity (a viral "original
+                            # sound" can be completely unrelated; a real
+                            # repost might only have 2,000 videos). If
+                            # measurement across a real sample of songs
+                            # shows generic uploads are a meaningful
+                            # source of missed matches, that's a real,
+                            # data-backed reason to revisit this — not
+                            # something to guess a threshold for now.
+                            # The actual fix for "TikTok's metadata
+                            # doesn't identify this audio" is a different
+                            # source of truth entirely (audio
+                            # fingerprinting), not more string heuristics.
+                            is_plausible = _is_plausible_candidate(
+                                title, author, song_name, song_artist, s.get("discovered_via")
+                            )
+                            new_status = "pending" if is_plausible else "inactive"
                     _log(f"  sound {s['id']} '{title}' by '{author}' video_count={video_count} "
                          f"discovered_via={s.get('discovered_via')} relevant={is_relevant} -> {new_status}")
 

@@ -473,7 +473,7 @@ function renderPendingPanel(pending) {
   el.innerHTML = pending.map(s => `
     <div class="pending-row" id="pending-row-${s.id}">
       <div class="pending-info">
-        <div class="pending-title">${escapeHtml(s.title || 'Unknown sound')}<span class="pending-source-badge">${escapeHtml(s.discovered_via || 'unknown')}</span></div>
+        <div class="pending-title">${escapeHtml(s.title || 'Unknown sound')}<span class="pending-source-badge">${escapeHtml(s.discovered_via || 'unknown')}</span>${s.likely_match ? '<span class="pending-source-badge" style="background:var(--success-bg);color:var(--success);">✓ likely match</span>' : '<span class="pending-source-badge" style="background:var(--warning-bg);color:var(--warning);">⚠ needs review</span>'}</div>
         <div class="pending-meta">${escapeHtml(s.author || '')} · ${fmt(s.current_video_count)} videos</div>
       </div>
       <div class="pending-actions">

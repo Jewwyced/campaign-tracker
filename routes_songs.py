@@ -283,11 +283,30 @@ def reject_sound(sound_db_id):
 @songs_bp.route("/api/songs/<int:song_id>/pending_review")
 def pending_review(song_id):
     """Lists sounds still sitting 'pending' for a song — the review queue
-    a human works through after 'Find New Sounds' runs (auto_approve=False
-    means genuine matches stay pending instead of auto-becoming canonical).
-    Sorted by video_count so the most-likely-real candidates surface first."""
+    a human works through after 'Find New Sounds' runs. Since qualify no
+    longer uses its strict automatic-approval bar to decide who reaches
+    this queue (see qualify_pending_sounds_for_song), it includes both
+    confirmed-looking matches AND genuinely ambiguous candidates (remixes
+    by unconfirmed uploaders, generic reposts with no textual artist
+    confirmation) — anything with real traction, for a human to judge.
+
+    Each row includes a `likely_match` flag, computed on-the-fly with the
+    same classifier used for automatic approval — purely informational,
+    to help you tell "the algorithm is confident, this is probably just a
+    duplicate upload of the real sound" apart from "this genuinely needs
+    you to go look at the video," not to gate anything.
+
+    Sorted by video_count so the most active candidates surface first.
+    """
+    from ingestion.service import _classify_sound_match
+
     with db() as conn:
         with conn.cursor() as c:
+            c.execute("SELECT name, artist FROM songs WHERE id=%s", (song_id,))
+            song_row = c.fetchone()
+            song_name = song_row["name"] if song_row else ""
+            song_artist = song_row["artist"] if song_row else ""
+
             c.execute("""
                 SELECT id, sound_id, title, author, current_video_count, discovered_via
                 FROM sounds
@@ -295,6 +314,13 @@ def pending_review(song_id):
                 ORDER BY current_video_count DESC NULLS LAST
             """, (song_id,))
             pending = [dict(r) for r in c.fetchall()]
+
+    for s in pending:
+        s["likely_match"] = _classify_sound_match(
+            s.get("title"), s.get("author"), song_name, song_artist,
+            s.get("current_video_count") or 0, discovered_via=s.get("discovered_via")
+        )
+
     return jsonify(pending)
 
 

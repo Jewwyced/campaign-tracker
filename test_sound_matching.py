@@ -62,6 +62,45 @@ from ingestion.service import (
 )
 
 
+def _simulate_qualify_branch(title, author, song, artist, video_count, source):
+    """Mirrors the actual three-bucket branch logic inside
+    qualify_pending_sounds_for_song's auto_approve=False path, so this
+    orchestration behavior gets the same regression protection as the
+    pure classifier functions."""
+    if video_count == 0:
+        return "inactive"
+    is_relevant = _classify_sound_match(title, author, song, artist, video_count, discovered_via=source)
+    if is_relevant:
+        return "pending"
+    is_plausible = _is_plausible_candidate(title, author, song, artist, source)
+    return "pending" if is_plausible else "inactive"
+
+
+# ── Three-bucket qualify orchestration cases (Find New Sounds path) ──────
+# (title, author, song, artist, video_count, discovered_via, expected, description)
+QUALIFY_BUCKET_CASES = [
+    ("Way down We Go", "KELAO", "Griddle", "Yeat", 4196939, "challenge", "inactive",
+     "REGRESSION: real, unrelated song with huge popularity must auto-reject "
+     "regardless of view count — popularity alone never earns a human review"),
+    ("La Muchachita", "Anthony Santos", "Griddle", "Yeat", 23993, "title_only", "inactive",
+     "Same principle — a real, different song by a real, different artist"),
+    ("Griddle Remix", "randomuser123", "Griddle", "Yeat", 45000, "title_only", "pending",
+     "Plausible title relation, unconfirmed uploader — worth a human's judgment"),
+    ("original sound - john", "john", "Griddle", "Yeat", 5000, "title_only", "inactive",
+     "Generic upload, zero signal, low popularity — auto-reject"),
+    ("original sound - john", "john", "Griddle", "Yeat", 500000, "title_only", "inactive",
+     "REGRESSION: same generic upload with NO textual signal, even at "
+     "huge popularity, still auto-rejects. A popularity-based exception "
+     "was considered and deliberately reverted — popularity is not "
+     "evidence of identity. If real data across a sample of songs shows "
+     "this is a meaningful source of missed matches, that's a reason to "
+     "revisit it with real numbers, not a guessed threshold."),
+    ("Griddlë", "Yeat & Don Toliver", "Griddle", "Yeat", 2258, "title_artist", "pending",
+     "Confident Tier 1 match — still lands in pending under auto_approve=False, "
+     "never silently becomes canonical"),
+]
+
+
 # ── _classify_sound_match cases ──────────────────────────────────────────
 # (sound_title, sound_author, song_title, song_artist, video_count,
 #  discovered_via, expected, description)
@@ -145,13 +184,21 @@ CLASSIFY_CASES = [
 
 
 # ── _artist_signal cases — the ratio guard specifically ──────────────────
-# (author, artist, expected, description)
+# (raw_author, artist_norm, expected, description)
+# NOTE: _artist_signal expects the RAW (pre-normalization) author string —
+# normalization destroys the '&' that distinguishes a real collab credit
+# from a fan-handle compound word. Do not pre-normalize these inputs.
 ARTIST_SIGNAL_CASES = [
-    ("bellsyeat", "yeat", False, "REGRESSION: fan handle, ratio 0.44 — must fail"),
-    ("plaqueboymaxclips", "plaqueboymax", True, "Real match, ratio 0.706 — must pass"),
+    ("bells_yeat", "yeat", False, "REGRESSION: fan handle, ratio 0.44 — must fail"),
+    ("PlaqueBoyMax Clips", "plaqueboymax", True, "Real match, ratio 0.706 — must pass"),
     ("officialplaqueboymax", "plaqueboymax", True, "Real match, ratio 0.6 — must pass"),
     ("plaqueboymax", "plaqueboymax", True, "Exact match, ratio 1.0 — must pass"),
     ("randomuser123", "yeat", False, "No substring at all — must fail"),
+    ("Yeat & Don Toliver", "yeat", True,
+     "REGRESSION: real collab credit — 'Yeat' is only 29% of the full "
+     "string but 100% of its own segment once split on '&'. Must pass."),
+    ("DDG & PlaqueBoyMax", "plaqueboymax", True,
+     "Same collab pattern with a longer artist name"),
 ]
 
 
@@ -174,6 +221,13 @@ DISCOVERY_FILTER_CASES = [
 def run():
     failures = []
 
+    for i, (title, author, song, artist, video_count, source, expected, description) in enumerate(QUALIFY_BUCKET_CASES, 1):
+        actual = _simulate_qualify_branch(title, author, song, artist, video_count, source)
+        status = "PASS" if actual == expected else "FAIL"
+        print(f"[{status}] qualify_bucket #{i}: {description}")
+        if actual != expected:
+            failures.append(f"qualify_bucket #{i}: {description} — expected {expected}, got {actual}")
+
     for i, (sound_title, sound_author, song_title, song_artist,
             video_count, discovered_via, expected, description) in enumerate(CLASSIFY_CASES, 1):
         actual = _classify_sound_match(
@@ -185,8 +239,8 @@ def run():
         if actual != expected:
             failures.append(f"classify #{i}: {description} — expected {expected}, got {actual}")
 
-    for i, (author, artist, expected, description) in enumerate(ARTIST_SIGNAL_CASES, 1):
-        actual = _artist_signal(_normalize_str(author), _normalize_str(artist))
+    for i, (raw_author, artist, expected, description) in enumerate(ARTIST_SIGNAL_CASES, 1):
+        actual = _artist_signal(raw_author, _normalize_str(artist))
         status = "PASS" if actual == expected else "FAIL"
         print(f"[{status}] artist_signal #{i}: {description}")
         if actual != expected:
@@ -199,7 +253,7 @@ def run():
         if actual != expected:
             failures.append(f"discovery_filter #{i}: {description} — expected {expected}, got {actual}")
 
-    total = len(CLASSIFY_CASES) + len(ARTIST_SIGNAL_CASES) + len(DISCOVERY_FILTER_CASES)
+    total = len(QUALIFY_BUCKET_CASES) + len(CLASSIFY_CASES) + len(ARTIST_SIGNAL_CASES) + len(DISCOVERY_FILTER_CASES)
     print()
     if failures:
         print(f"{len(failures)} of {total} cases FAILED:\n")
