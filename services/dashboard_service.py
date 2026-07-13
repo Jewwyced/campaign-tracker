@@ -140,63 +140,59 @@ def get_dashboard_stats():
 
 def get_daily_digest():
     """The three sections of the daily digest, global across every
-    active campaign (not scoped to whichever campaign happens to be
-    open) — this is the 'open the app every morning' page, answering
-    'what happened across our entire roster since yesterday.'
+    active campaign.
 
-    1. milestone_crossings — posts that crossed a real engagement tier
-       (1K/5K/10K likes) since yesterday, using post_snapshots for a true
-       day-over-day comparison. A post with no snapshot from yesterday
-       (brand new, or from before post_snapshots existed) is treated as
-       having crossed today if it's already at/above the tier — this is
-       the deliberate first-day fallback discussed when post_snapshots
-       was built: history only starts accumulating once the cron
-       actually runs, so there's no "yesterday" to compare against yet
-       for anything that predates it.
+    1. milestone_crossings — REAL, one-time crossing events from the
+       milestone_events table (see _record_milestone_events in
+       ingestion/service.py), not a day-over-day snapshot diff. This
+       matters: a naive "no snapshot from exactly yesterday = just
+       crossed" comparison sounds reasonable in theory, but with
+       hundreds of approved sounds and only 25 refreshed per hour, many
+       posts go more than a day between refreshes — meaning "yesterday's
+       snapshot" is very often just MISSING, not because the post is
+       new, but because it wasn't touched that specific day. That made
+       long-established, months-old viral posts (10K+ likes for a long
+       time) perpetually resurface as if they'd "just crossed" every
+       single day, which is exactly backwards from what a digest is for.
+       milestone_events fixes this structurally: each (post_id, tier)
+       pair can only ever get ONE row, inserted the first time that
+       level is ever observed, so a crossing is reported exactly once,
+       on the day it actually happened, never again after.
     2. todays_activity — everything else posted/updated in the last 24h,
-       ranked by performance, so posts gaining real momentum surface even
-       before they cross a milestone.
-    3. weekly_trend — simple posts-per-day and views-per-day for the last
-       7 days, to answer "was this week bigger or smaller than last."
+       ranked by performance.
+    3. weekly_trend — simple posts-per-day and views-per-day for the
+       last 7 days.
     """
     with db() as conn:
         with conn.cursor() as c:
-            # ── Milestone crossings ──────────────────────────────────
-            # CASE picks the HIGHEST tier crossed so a post that jumped
-            # from 200 to 15,000 likes overnight is credited once, with
-            # the 10K badge, not double-counted across all three tiers.
+            # ── Milestone crossings — from the permanent events table ──
+            # DISTINCT ON (post_id) + ORDER BY tier DESC inside the
+            # subquery keeps only the HIGHEST tier per post: a post
+            # that's new to us but already very popular could otherwise
+            # qualify for 1K, 5K, AND 10K simultaneously on the same day,
+            # showing as three redundant cards for one post.
             c.execute("""
-                WITH today_snap AS (
-                    SELECT * FROM post_snapshots WHERE date = CURRENT_DATE
-                ),
-                yesterday_snap AS (
-                    SELECT * FROM post_snapshots WHERE date = CURRENT_DATE - 1
-                )
-                SELECT
-                    p.post_id, p.username, p.thumbnail,
-                    t.views, t.likes,
-                    snd.title as sound_title, sg.name as song_name, sg.id as song_id,
-                    CASE
-                        WHEN t.likes >= 10000 AND (y.likes IS NULL OR y.likes < 10000) THEN 10000
-                        WHEN t.likes >= 5000 AND (y.likes IS NULL OR y.likes < 5000) THEN 5000
-                        WHEN t.likes >= 1000 AND (y.likes IS NULL OR y.likes < 1000) THEN 1000
-                    END as tier_crossed
-                FROM today_snap t
-                JOIN posts p ON p.post_id = t.post_id
-                JOIN sounds snd ON snd.id = p.sound_db_id
-                JOIN songs sg ON sg.id = snd.song_id
-                JOIN campaign_songs cs ON cs.song_id = sg.id
-                JOIN campaigns camp ON camp.id = cs.campaign_id AND camp.status = 'In Progress'
-                LEFT JOIN yesterday_snap y ON y.post_id = t.post_id
-                WHERE (
-                    (t.likes >= 10000 AND (y.likes IS NULL OR y.likes < 10000)) OR
-                    (t.likes >= 5000 AND (y.likes IS NULL OR y.likes < 5000)) OR
-                    (t.likes >= 1000 AND (y.likes IS NULL OR y.likes < 1000))
-                )
-                ORDER BY tier_crossed DESC, t.likes DESC
+                SELECT * FROM (
+                    SELECT DISTINCT ON (me.post_id)
+                        me.post_id, me.tier, me.views, me.likes, me.crossed_date,
+                        p.username, p.thumbnail,
+                        snd.title as sound_title, sg.name as song_name, sg.id as song_id
+                    FROM milestone_events me
+                    JOIN posts p ON p.post_id = me.post_id
+                    JOIN sounds snd ON snd.id = p.sound_db_id
+                    JOIN songs sg ON sg.id = snd.song_id
+                    JOIN campaign_songs cs ON cs.song_id = sg.id
+                    JOIN campaigns camp ON camp.id = cs.campaign_id AND camp.status = 'In Progress'
+                    WHERE me.crossed_date = CURRENT_DATE
+                    ORDER BY me.post_id, me.tier DESC
+                ) sub
+                ORDER BY tier DESC, likes DESC
                 LIMIT 20
             """)
-            milestone_crossings = [dict(r) for r in c.fetchall()]
+            milestone_rows = [dict(r) for r in c.fetchall()]
+            milestone_crossings = [
+                {**r, "tier_crossed": r["tier"]} for r in milestone_rows
+            ]
 
             milestone_post_ids = [m["post_id"] for m in milestone_crossings]
 

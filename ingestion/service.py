@@ -547,6 +547,30 @@ def _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_resul
                     p.get("views", 0), p.get("likes", 0),
                     p.get("comments", 0), p.get("shares", 0)
                 ))
+                # Milestone events — a PERMANENT record of the first time
+                # this post was ever observed at each engagement tier.
+                # ON CONFLICT (post_id, tier) DO NOTHING means each row
+                # can only ever be created once, ever — critical, because
+                # the dashboard digest used to instead diff today's
+                # snapshot against yesterday's, and treat a MISSING
+                # yesterday snapshot as "just crossed." With hundreds of
+                # approved sounds and only 25 refreshed per hour, many
+                # posts go more than a day between refreshes, so
+                # "yesterday's snapshot" was very often just absent — not
+                # because the post was new, but because it wasn't touched
+                # that specific day. That made long-established, months-
+                # old viral posts perpetually resurface as if they'd
+                # "just crossed" every single day. This table fixes that
+                # structurally: a crossing is recorded exactly once, the
+                # first time it's ever seen, and never again after.
+                likes = p.get("likes", 0) or 0
+                for tier in (1000, 5000, 10000):
+                    if likes >= tier:
+                        c.execute("""
+                            INSERT INTO milestone_events (post_id, tier, crossed_date, views, likes)
+                            VALUES (%s,%s,%s,%s,%s)
+                            ON CONFLICT (post_id, tier) DO NOTHING
+                        """, (p["post_id"], tier, today, p.get("views", 0), likes))
                 added += 1
         conn.commit()
     return added
