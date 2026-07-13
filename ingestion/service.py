@@ -62,6 +62,23 @@ TIER2_VIDEO_COUNT_THRESHOLD = 10000
 # reliable safety margin against timeouts than trimming the count alone.
 QUALIFY_BATCH_SIZE = 5
 
+# Max plausible candidates to persist per discovery run. Even after the
+# no-API-call plausibility filter (_could_possibly_qualify), a common
+# title can still leave more "technically eligible" generic uploads than
+# are worth tracking — a song should end up with a handful of real
+# candidates, not dozens sitting in the pending queue. This is the actual
+# fix for "494 pending sounds for one song": discovery should return a
+# small, plausible set, not everything it could possibly find.
+MAX_DISCOVERY_CANDIDATES = 30
+
+# Once discovery has found this many plausible candidates, stop searching
+# entirely — no reason to keep crawling hashtags/challenges once there's
+# already a healthy pool to qualify from. Saves API calls, time, database
+# writes, and downstream qualification work. Deliberately lower than
+# MAX_DISCOVERY_CANDIDATES: this is "enough to stop looking," not "the
+# most we'll ever keep" — the persist-time cap still applies on top.
+EARLY_STOP_CANDIDATE_THRESHOLD = 15
+
 
 def _log(msg):
     print(f"  [ingestion] {msg}", flush=True)
@@ -155,6 +172,118 @@ def _update_sound_velocity(db_conn_factory, sound_db_id):
 
     _log(f"sound {sound_db_id} velocity: {posts_24h} posts/24h, {posts_7d} posts/7d, ratio={velocity}")
     return velocity
+
+
+def _is_plausible_candidate(title, author, song_name, song_artist, discovered_via):
+    """Discovery-time filter, deliberately kept SEPARATE from
+    _could_possibly_qualify (used by qualify's bulk pre-filter), even
+    though the underlying signals look similar today. These answer two
+    different questions:
+      - Discovery asks: "Is this even worth storing?" — a cheap,
+        PERMISSIVE junk filter. A title match alone (even with an
+        unconfirmed/unrelated-looking uploader) or an artist match alone
+        is enough to be worth storing — e.g. "Griddle Remix" by some
+        random uploader is plausible enough to check further, even though
+        we can't yet confirm the uploader has anything to do with the
+        artist. Qualify will do the real, stricter verification later
+        with fresh video_count data.
+      - Qualification asks: "Is this actually the song?" — the real,
+        final verification, and it correctly requires BOTH a title AND
+        artist match together (see _classify_sound_match) — that's where
+        "Griddle Remix" by an unrelated uploader would likely get
+        rejected once actually checked, not here.
+    Keeping these as separate functions (and separately TUNED — this one
+    is intentionally looser) means discovery's net can stay wide while
+    qualification's bar stays strict, without the two silently becoming
+    the same function in disguise.
+    """
+    title_norm = _normalize_str(song_name)
+    artist_norm = _normalize_str(song_artist) if song_artist else ""
+    s_title = _normalize_str(title)
+    s_author = _normalize_str(author)
+
+    if not title_norm:
+        return False
+
+    title_exact = (s_title == title_norm)
+    title_contains = (title_norm in s_title) and not title_exact
+    sig_words = [w for w in title_norm.split() if len(w) > 3]
+    title_words_matched = sum(1 for w in sig_words if w in s_title)
+    title_multiword = len(sig_words) >= 2 and title_words_matched >= 2
+    plausible_title = title_exact or title_contains or title_multiword
+
+    if not artist_norm:
+        return plausible_title
+
+    # Permissive OR, not qualify's stricter AND: either signal alone is
+    # enough to be worth storing and letting qualify look at properly.
+    if plausible_title:
+        return True
+    if _artist_signal(s_author, artist_norm):
+        return True
+
+    is_generic_upload = "original sound" in s_title
+    if is_generic_upload and discovered_via == "title_artist":
+        return True  # video_count unknown until qualify — genuinely undecidable here
+
+    return False
+
+
+def _could_possibly_qualify(title, author, song_name, song_artist, discovered_via):
+    """Cheap, NO-API-CALL pre-check using only the title/author already
+    stored from discovery. Returns False only when we're CERTAIN qualify
+    would reject this candidate regardless of video_count — used to bulk-
+    reject candidates before spending a provider call on them.
+
+    Why this exists: discovery (especially the challenge/hashtag crawl)
+    pulls in a large volume of candidates with zero textual relation to
+    the song at all — not just generic "original sound" uploads, but
+    complete, real songs by unrelated artists (e.g. Griddle's crawl
+    surfacing "Way down We Go" by KELAO, "La Muchachita" by Anthony
+    Santos). We already know enough from discovery-time title/author to
+    be certain these can never pass — spending a network call and a
+    qualify "slot" just to prove what's already obvious from the text is
+    wasted work, and it's why qualify was churning through 5-at-a-time
+    for hundreds of rounds on something that's actually free to filter.
+
+    The only thing genuinely gated behind an API call is video_count,
+    which only matters for the narrow Tier 2 path (generic upload +
+    discovered_via == 'title_artist' + popularity). Everything else this
+    function checks mirrors _classify_sound_match's title/artist logic
+    exactly, just without the video_count-dependent branch.
+    """
+    title_norm = _normalize_str(song_name)
+    artist_norm = _normalize_str(song_artist) if song_artist else ""
+    s_title = _normalize_str(title)
+    s_author = _normalize_str(author)
+
+    if not title_norm:
+        return False
+
+    title_exact = (s_title == title_norm)
+    title_contains = (title_norm in s_title) and not title_exact
+    sig_words = [w for w in title_norm.split() if len(w) > 3]
+    title_words_matched = sum(1 for w in sig_words if w in s_title)
+    title_multiword = len(sig_words) >= 2 and title_words_matched >= 2
+    strong_title_possible = title_exact or title_contains or title_multiword
+
+    if not artist_norm:
+        # No artist on file — title match alone would be the deciding
+        # factor, and we already know the title now (no API call needed
+        # to learn it — video_count doesn't change whether a title matches).
+        return strong_title_possible
+
+    if _artist_signal(s_author, artist_norm) and strong_title_possible:
+        return True  # Tier 1 already provable from stored data alone
+
+    is_generic_upload = "original sound" in s_title
+    if is_generic_upload and discovered_via == "title_artist":
+        # Tier 2 is POSSIBLE (video_count unknown until the API call) —
+        # this is the one case where we genuinely can't decide without
+        # spending the call.
+        return True
+
+    return False
 
 
 def _score_sound(sound, title, artist):
@@ -616,37 +745,45 @@ def discover_sounds_from_challenge(title, artist=""):
 
 
 def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
-    """Aggressive sound discovery using multiple search queries and pagination.
-    Goal: find as many legitimate sounds as possible, store all of them.
-    Monitoring will decide which ones to track frequently.
+    """Discovery: search for candidate sounds, filter out obvious junk
+    BEFORE persisting anything, and stop searching early once enough
+    plausible candidates are found.
 
     Each candidate is tagged with discovered_via, a permanent record of
     which search method first surfaced it:
       'title_artist' — the combined "{title} {artist}" search. Requires
                         TikTok's own search relevance to match BOTH terms
-                        together — the strongest evidence.
+                        together — the strongest evidence, tried first.
       'title_only'   — title alone, or a sped-up/slowed/remix variant of
                         the title. Weaker: a common title can collide with
                         unrelated content.
       'hashtag'      — title or artist hashtag search via video search.
-      'challenge'    — the challenge/hashtag crawl. Weakest: this is
+      'challenge'    — the challenge/hashtag crawl. Weakest and most
+                        expensive (up to 10 pages per hashtag) — this is
                         exactly where "Griddle" collided with an unrelated
                         dance trend and pulled in dozens of wildly popular,
-                        completely unrelated sounds.
+                        completely unrelated sounds. Only run if cheaper
+                        sources haven't already found enough.
 
-    This is a historical record ("how did we find this"), not a
-    recomputed confidence score — the classifier always re-derives its
-    own confidence from today's matching logic; discovered_via just
-    answers a question no later recomputation can ever answer: which
-    search actually turned this candidate up in the first place.
+    Search steps run in order from strongest to weakest evidence, and stop
+    as soon as EARLY_STOP_CANDIDATE_THRESHOLD plausible candidates have
+    been found — no reason to keep crawling hashtags once a healthy pool
+    already exists to qualify from. This saves API calls, time, and
+    avoids ever generating (let alone filtering) large amounts of noise
+    in the first place.
+
+    Every candidate is checked with _is_plausible_candidate before it's
+    even added to the working set — candidates with zero textual relation
+    to the song never get past this point, so they're never persisted to
+    the database at all. This is a historical record ("how did we find
+    this") plus a junk filter, not a recomputed confidence score — the
+    classifier at qualify time always re-derives its own confidence from
+    today's matching logic using fresh video_count data.
     """
-    # Multiple search queries to maximize coverage
     title_clean = title.strip()
-    # Clean artist — remove featured artists, take only primary artist
     artist_raw = artist.strip() if artist else ""
     artist_clean = artist_raw.split(',')[0].split('&')[0].split('feat')[0].split('ft.')[0].strip()
 
-    # Generate hashtag variants
     title_hashtag = "#" + title_clean.lower().replace(" ", "")
     artist_hashtag = "#" + artist_clean.lower().replace(" ", "") if artist_clean else ""
 
@@ -665,66 +802,84 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
     ])))
 
     seen_ids = set()
-    all_sounds = []
+    all_sounds = []       # everything seen, for logging/dedup purposes
+    plausible_sounds = [] # only candidates that passed the junk filter
 
-    # 'title_artist' — the combined query, strongest evidence
+    def _plausible_count():
+        return len(plausible_sounds)
+
+    def _ingest_results(sounds, source_tag):
+        """Tag, dedupe, and junk-filter one search's results. Returns True
+        if the early-stop threshold is now met."""
+        for s in sounds:
+            sid = s.get("sound_id")
+            if not sid or sid in seen_ids:
+                continue
+            seen_ids.add(sid)
+            s["discovered_via"] = source_tag
+            all_sounds.append(s)
+            if _is_plausible_candidate(s.get("title"), s.get("author"), title, artist, source_tag):
+                plausible_sounds.append(s)
+        return _plausible_count() >= EARLY_STOP_CANDIDATE_THRESHOLD
+
+    stopped_early_at = None
+
+    # 'title_artist' — strongest evidence, tried first
     if targeted_query:
         sounds = discover_sounds_from_videos(targeted_query)
-        for s in sounds:
-            sid = s.get("sound_id")
-            if sid and sid not in seen_ids:
-                seen_ids.add(sid)
-                s["discovered_via"] = "title_artist"
-                all_sounds.append(s)
+        if _ingest_results(sounds, "title_artist"):
+            stopped_early_at = "title_artist"
 
     # 'title_only' — title alone or a derivative-title variant
-    for query in title_only_queries:
-        sounds = discover_sounds_from_videos(query)
-        for s in sounds:
-            sid = s.get("sound_id")
-            if sid and sid not in seen_ids:
-                seen_ids.add(sid)
-                s["discovered_via"] = "title_only"
-                all_sounds.append(s)
+    if not stopped_early_at:
+        for query in title_only_queries:
+            sounds = discover_sounds_from_videos(query)
+            if _ingest_results(sounds, "title_only"):
+                stopped_early_at = "title_only"
+                break
 
     # 'hashtag' — hashtag search via video search endpoint
-    for query in hashtag_queries:
-        sounds = discover_sounds_from_videos(query)
-        for s in sounds:
-            sid = s.get("sound_id")
-            if sid and sid not in seen_ids:
-                seen_ids.add(sid)
-                s["discovered_via"] = "hashtag"
-                all_sounds.append(s)
+    if not stopped_early_at:
+        for query in hashtag_queries:
+            sounds = discover_sounds_from_videos(query)
+            if _ingest_results(sounds, "hashtag"):
+                stopped_early_at = "hashtag"
+                break
 
-    # 'challenge' — the challenge/hashtag crawl, weakest evidence (this is
-    # the source of the Griddle dance-trend contamination)
-    challenge_sounds = discover_sounds_from_challenge(title, artist)
-    for s in challenge_sounds:
-        sid = s.get("sound_id")
-        if sid and sid not in seen_ids:
-            seen_ids.add(sid)
-            s["discovered_via"] = "challenge"
-            all_sounds.append(s)
+    # 'challenge' — the expensive, weakest-evidence crawl. Only run if
+    # cheaper sources haven't already found enough.
+    if not stopped_early_at:
+        challenge_sounds = discover_sounds_from_challenge(title, artist)
+        if _ingest_results(challenge_sounds, "challenge"):
+            stopped_early_at = "challenge"
 
-    _log(f"discover_song_sounds: {len(all_sounds)} unique sounds from search + challenge crawl")
+    if stopped_early_at:
+        _log(f"discover_song_sounds: stopped early after '{stopped_early_at}' — "
+             f"{_plausible_count()} plausible candidates already found "
+             f"(threshold={EARLY_STOP_CANDIDATE_THRESHOLD}), skipping remaining search sources")
 
-    # Score for ranking/logging but store ALL sounds — don't filter aggressively
+    _log(f"discover_song_sounds: {len(all_sounds)} unique sounds seen, "
+         f"{len(plausible_sounds)} passed the plausibility filter (rest discarded, never persisted)")
+
+    # Score for ranking, then cap to a small, plausible ceiling — even
+    # after filtering, a common title can still have more "technically
+    # plausible" generic uploads than are worth tracking. A song should
+    # have a handful of real candidates, not dozens.
     def score(s):
         base = _score_sound(s, title, artist)
         freq_bonus = min(s.get("frequency", 0) * 5, 50)
         return base + freq_bonus
 
-    # Sort by score but keep all of them
-    ranked_sounds = sorted(all_sounds, key=score, reverse=True)
+    ranked_sounds = sorted(plausible_sounds, key=score, reverse=True)
+    to_store = ranked_sounds[:MAX_DISCOVERY_CANDIDATES]
 
-    _log(f"discover_song_sounds: storing all {len(ranked_sounds)} sounds")
-    for i, s in enumerate(ranked_sounds[:5]):
+    _log(f"discover_song_sounds: storing top {len(to_store)} of {len(ranked_sounds)} plausible candidates "
+         f"(capped at {MAX_DISCOVERY_CANDIDATES})")
+    for i, s in enumerate(to_store[:5]):
         _log(f"  #{i+1} '{s.get('title')}' score={score(s)} freq={s.get('frequency',0)}")
 
-    # Store ALL sounds as pending — qualify endpoint will promote based on video_count
     stored = 0
-    for s in ranked_sounds:
+    for s in to_store:
         try:
             sound_db_id = get_or_create_sound(db_conn_factory, song_id, s)
             if sound_db_id:
@@ -733,7 +888,7 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
             _log(f"EXCEPTION storing sound {s.get('sound_id')} for song {song_id}: {e}")
 
     _log(f"discover_song_sounds: stored {stored} sounds as pending — run /qualify to promote")
-    return ranked_sounds[:stored]
+    return to_store[:stored]
 
 
 def _promote_top_sounds(db_conn_factory, song_id, sounds):
@@ -973,17 +1128,45 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id, auto_approve=True)
     song_name = song_row["name"] if song_row else ""
     song_artist = song_row["artist"] if song_row else ""
 
+    # ── Pre-filter: bulk-reject candidates that provably can't qualify ──
+    # This costs ZERO API calls — it only uses title/author already stored
+    # from discovery. Discovery (especially the challenge/hashtag crawl)
+    # pulls in a large volume of candidates with zero textual relation at
+    # all (complete, real songs by unrelated artists, not just generic
+    # uploads), and there's no need to fetch video_count to know those
+    # can't possibly qualify. Only genuinely plausible candidates get
+    # ranked and spend one of the QUALIFY_BATCH_SIZE provider calls.
+    plausible = []
+    bulk_rejected_ids = []
+    for s in pending:
+        if _could_possibly_qualify(s.get("title"), s.get("author"), song_name, song_artist, s.get("discovered_via")):
+            plausible.append(s)
+        else:
+            bulk_rejected_ids.append(s["id"])
+
+    if bulk_rejected_ids:
+        with db_conn_factory() as conn:
+            with conn.cursor() as c:
+                c.execute(
+                    "UPDATE sounds SET status='inactive' WHERE id = ANY(%s)",
+                    (bulk_rejected_ids,)
+                )
+            conn.commit()
+        _log(f"qualify_pending_sounds_for_song: song {song_id} — bulk-rejected "
+             f"{len(bulk_rejected_ids)} candidates with zero textual relation "
+             f"(no API calls spent), {len(plausible)} plausible candidates remain")
+
     def rank_key(s):
         return _score_sound({"title": s.get("title"), "author": s.get("author")}, song_name, song_artist)
 
-    pending_sorted = sorted(pending, key=rank_key, reverse=True)
+    pending_sorted = sorted(plausible, key=rank_key, reverse=True)
     batch = pending_sorted[:QUALIFY_BATCH_SIZE]
     remaining = len(pending_sorted) - len(batch)
 
-    _log(f"qualifying {len(pending_sorted)} pending sounds for song {song_id} "
+    _log(f"qualifying {len(pending_sorted)} plausible pending sounds for song {song_id} "
          f"(batch_size={QUALIFY_BATCH_SIZE}, auto_approve={auto_approve})")
     if remaining > 0:
-        _log(f"qualify_pending_sounds_for_song: song {song_id} has {len(pending_sorted)} pending — "
+        _log(f"qualify_pending_sounds_for_song: song {song_id} has {len(pending_sorted)} plausible pending — "
              f"processing top {len(batch)} this call, leaving {remaining} for next cron cycle")
 
     approved = 0
@@ -1043,11 +1226,13 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id, auto_approve=True)
             _log(f"qualify_pending_sounds_for_song: failed on sound {s['id']}: {e}")
 
     _log(f"qualify_pending_sounds_for_song: song {song_id} — {approved} approved, "
-         f"{awaiting_review} awaiting review, {inactive} inactive, {remaining} still pending")
+         f"{awaiting_review} awaiting review, {inactive} inactive, "
+         f"{len(bulk_rejected_ids)} bulk-rejected (no API call), {remaining} still pending")
     return {
         "approved": approved,
         "awaiting_review": awaiting_review,
         "inactive": inactive,
+        "bulk_rejected": len(bulk_rejected_ids),
         "checked": len(batch),
         "remaining_pending": remaining,
     }
