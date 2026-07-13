@@ -355,24 +355,6 @@ def find_new_sounds(song_id):
 @songs_bp.route("/api/songs/<int:song_id>/requalify", methods=["POST"])
 def requalify_song(song_id):
     """Re-run ONLY the qualify step for a song's pending sounds — no
-    discovery, no ingest. Use this after fixing/tuning the matching logic
-    to re-judge already-discovered candidates against the corrected rules,
-    without paying for full re-discovery.
-
-    Typical flow: reset wrongly-approved sounds back to 'pending' via SQL,
-    then call this to re-classify them under the current rules. Capped to
-    QUALIFY_BATCH_SIZE candidates per call (same cap as everywhere else),
-    so a song with a large pending backlog may need this called more than
-    once to fully clear.
-    """
-    from ingestion import service as ingestion_service
-    result = ingestion_service.qualify_pending_sounds_for_song(db, song_id)
-    return jsonify({"ok": True, "song_id": song_id, **result})
-
-
-@songs_bp.route("/api/songs/<int:song_id>/requalify", methods=["POST"])
-def requalify_song(song_id):
-    """Re-run ONLY the qualify step for a song's pending sounds — no
     discovery (which hits many expensive search-video/challenge API calls
     and would re-add candidates rather than just re-judging existing ones),
     no ingest. Use this after fixing/tuning the matching logic to re-judge
