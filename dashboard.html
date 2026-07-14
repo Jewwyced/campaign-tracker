@@ -8,29 +8,27 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0a0d12;
-    --bg-grid: rgba(255,255,255,.025);
-    --surface: #12161f;
-    --surface-2: #171c27;
-    --border: #232838;
-    --border-soft: #1a1f2b;
-    --text-primary: #edeff3;
-    --text-secondary: #9aa3b8;
-    --text-muted: #5b6478;
-    --signal: #3ed598;
-    --signal-dim: rgba(62,213,152,.13);
-    --alert: #f5b841;
-    --alert-dim: rgba(245,184,65,.13);
-    --accent: #7c8cff;
-    --accent-dim: rgba(124,140,255,.13);
-    --fan: #ff6fa5;
-    --fan-dim: rgba(255,111,165,.13);
+    --bg: #fafafa;
+    --bg-grid: transparent;
+    --surface: #ffffff;
+    --surface-2: #f7f7f8;
+    --border: #e4e4e7;
+    --border-soft: #f0f0f2;
+    --text-primary: #18181b;
+    --text-secondary: #52525b;
+    --text-muted: #a1a1aa;
+    --signal: #059669;
+    --signal-dim: #ecfdf5;
+    --alert: #b45309;
+    --alert-dim: #fef3c7;
+    --accent: #6366f1;
+    --accent-dim: #eef2ff;
+    --fan: #be185d;
+    --fan-dim: #fce7f3;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    background:
-      repeating-linear-gradient(180deg, var(--bg-grid) 0px, var(--bg-grid) 1px, transparent 1px, transparent 3px),
-      var(--bg);
+    background: var(--bg);
     color: var(--text-primary);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
@@ -359,13 +357,13 @@ function drawWeeklyTrendChart(trend) {
         {
           label: 'Views',
           data: views,
-          borderColor: '#3ed598',
-          backgroundColor: 'rgba(62,213,152,0.10)',
+          borderColor: '#059669',
+          backgroundColor: 'rgba(5,150,105,0.08)',
           borderWidth: 3,
           pointRadius: 5,
           pointHoverRadius: 6,
-          pointBackgroundColor: '#3ed598',
-          pointBorderColor: '#0a0d12',
+          pointBackgroundColor: '#059669',
+          pointBorderColor: '#ffffff',
           pointBorderWidth: 2,
           tension: 0.3,
           fill: true,
@@ -379,9 +377,9 @@ function drawWeeklyTrendChart(trend) {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: '#171c27',
-          borderColor: '#232838',
-          borderWidth: 1,
+          backgroundColor: '#18181b',
+          borderColor: '#e4e4e7',
+          borderWidth: 0,
           padding: 10,
           titleFont: { family: "'JetBrains Mono', monospace", size: 12 },
           bodyFont: { family: "'JetBrains Mono', monospace", size: 13 },
@@ -389,10 +387,10 @@ function drawWeeklyTrendChart(trend) {
         }
       },
       scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 12, family: "'JetBrains Mono', monospace" }, color: '#8a93a8' } },
+        x: { grid: { display: false }, ticks: { font: { size: 12, family: "'JetBrains Mono', monospace" }, color: '#71717a' } },
         y: {
-          grid: { color: 'rgba(255,255,255,0.05)' },
-          ticks: { font: { size: 12, family: "'JetBrains Mono', monospace" }, color: '#8a93a8', callback: function(v) { return fmt(v); } }
+          grid: { color: 'rgba(0,0,0,0.05)' },
+          ticks: { font: { size: 12, family: "'JetBrains Mono', monospace" }, color: '#71717a', callback: function(v) { return fmt(v); } }
         }
       }
     }
