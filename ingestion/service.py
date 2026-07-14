@@ -62,7 +62,7 @@ ARTIST_SIGNAL_MIN_RATIO = 0.5
 # so a handful of slow calls alone can eat 30+ seconds) — cutting to 5
 # both matches the actual product goal AND gives a much bigger, more
 # reliable safety margin against timeouts than trimming the count alone.
-QUALIFY_BATCH_SIZE = 5
+QUALIFY_BATCH_SIZE = 20
 
 # Max plausible candidates to persist per discovery run. Even after the
 # no-API-call plausibility filter (_could_possibly_qualify), a common
@@ -71,7 +71,7 @@ QUALIFY_BATCH_SIZE = 5
 # candidates, not dozens sitting in the pending queue. This is the actual
 # fix for "494 pending sounds for one song": discovery should return a
 # small, plausible set, not everything it could possibly find.
-MAX_DISCOVERY_CANDIDATES = 30
+MAX_DISCOVERY_CANDIDATES = 75
 
 # Once discovery has found this many plausible candidates, stop searching
 # entirely — no reason to keep crawling hashtags/challenges once there's
@@ -79,7 +79,7 @@ MAX_DISCOVERY_CANDIDATES = 30
 # writes, and downstream qualification work. Deliberately lower than
 # MAX_DISCOVERY_CANDIDATES: this is "enough to stop looking," not "the
 # most we'll ever keep" — the persist-time cap still applies on top.
-EARLY_STOP_CANDIDATE_THRESHOLD = 15
+EARLY_STOP_CANDIDATE_THRESHOLD = 40
 
 
 def _log(msg):
