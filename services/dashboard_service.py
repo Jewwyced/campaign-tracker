@@ -166,33 +166,37 @@ def get_daily_digest():
             # once, showing as three redundant cards for one post.
             c.execute("""
                 SELECT * FROM (
-                    SELECT DISTINCT ON (me.post_id)
-                        me.post_id, me.tier, me.views, me.likes, me.crossed_date,
-                        p.username, p.thumbnail,
-                        snd.title as sound_title, sg.name as song_name, sg.id as song_id,
-                        'sound' as source_type
-                    FROM milestone_events me
-                    JOIN posts p ON p.post_id = me.post_id
-                    JOIN sounds snd ON snd.id = p.sound_db_id
-                    JOIN songs sg ON sg.id = snd.song_id
-                    JOIN campaign_songs cs ON cs.song_id = sg.id
-                    JOIN campaigns camp ON camp.id = cs.campaign_id AND camp.status = 'In Progress'
-                    WHERE me.crossed_date = CURRENT_DATE
-                    ORDER BY me.post_id, me.tier DESC
+                    (
+                        SELECT DISTINCT ON (me.post_id)
+                            me.post_id, me.tier, me.views, me.likes, me.crossed_date,
+                            p.username, p.thumbnail,
+                            snd.title as sound_title, sg.name as song_name, sg.id as song_id,
+                            'sound' as source_type
+                        FROM milestone_events me
+                        JOIN posts p ON p.post_id = me.post_id
+                        JOIN sounds snd ON snd.id = p.sound_db_id
+                        JOIN songs sg ON sg.id = snd.song_id
+                        JOIN campaign_songs cs ON cs.song_id = sg.id
+                        JOIN campaigns camp ON camp.id = cs.campaign_id AND camp.status = 'In Progress'
+                        WHERE me.crossed_date = CURRENT_DATE
+                        ORDER BY me.post_id, me.tier DESC
+                    )
 
                     UNION ALL
 
-                    SELECT DISTINCT ON (me.post_id)
-                        me.post_id, me.tier, me.views, me.likes, me.crossed_date,
-                        p.username, p.thumbnail,
-                        NULL as sound_title, NULL as song_name, NULL as song_id,
-                        'fan_page' as source_type
-                    FROM milestone_events me
-                    JOIN posts p ON p.post_id = me.post_id
-                    JOIN artists a ON a.username = p.username
-                    WHERE me.crossed_date = CURRENT_DATE
-                    AND p.sound_db_id IS NULL
-                    ORDER BY me.post_id, me.tier DESC
+                    (
+                        SELECT DISTINCT ON (me.post_id)
+                            me.post_id, me.tier, me.views, me.likes, me.crossed_date,
+                            p.username, p.thumbnail,
+                            NULL as sound_title, NULL as song_name, NULL as song_id,
+                            'fan_page' as source_type
+                        FROM milestone_events me
+                        JOIN posts p ON p.post_id = me.post_id
+                        JOIN artists a ON a.username = p.username
+                        WHERE me.crossed_date = CURRENT_DATE
+                        AND p.sound_db_id IS NULL
+                        ORDER BY me.post_id, me.tier DESC
+                    )
                 ) sub
                 ORDER BY tier DESC, likes DESC
                 LIMIT 20
