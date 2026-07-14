@@ -140,43 +140,37 @@ def get_dashboard_stats():
 
 def get_daily_digest():
     """The three sections of the daily digest, global across every
-    active campaign.
+    active campaign AND every tracked fan page.
 
     1. milestone_crossings — REAL, one-time crossing events from the
-       milestone_events table (see _record_milestone_events in
-       ingestion/service.py), not a day-over-day snapshot diff. This
-       matters: a naive "no snapshot from exactly yesterday = just
-       crossed" comparison sounds reasonable in theory, but with
-       hundreds of approved sounds and only 25 refreshed per hour, many
-       posts go more than a day between refreshes — meaning "yesterday's
-       snapshot" is very often just MISSING, not because the post is
-       new, but because it wasn't touched that specific day. That made
-       long-established, months-old viral posts (10K+ likes for a long
-       time) perpetually resurface as if they'd "just crossed" every
-       single day, which is exactly backwards from what a digest is for.
-       milestone_events fixes this structurally: each (post_id, tier)
-       pair can only ever get ONE row, inserted the first time that
-       level is ever observed, so a crossing is reported exactly once,
-       on the day it actually happened, never again after.
+       milestone_events table, covering BOTH sound-driven posts (via
+       campaign_songs) AND fan-page posts (via the `artists` table —
+       see ingest_fan_account in ingestion/service.py, which now writes
+       the same milestone_events rows fan pages were previously missing
+       entirely from this digest).
     2. todays_activity — everything else posted/updated in the last 24h,
-       ranked by performance.
-    3. weekly_trend — simple posts-per-day and views-per-day for the
-       last 7 days.
+       from either source, ranked by performance.
+    3. weekly_trend — posts-per-day and views-per-day for the last 7
+       days, combined across both sources.
+
+    Each row includes a `source_type` ('sound' or 'fan_page') so the UI
+    can label them differently — a fan-page post has no song/sound to
+    attribute, so `song_name`/`sound_title` are NULL for those rows.
     """
     with db() as conn:
         with conn.cursor() as c:
-            # ── Milestone crossings — from the permanent events table ──
-            # DISTINCT ON (post_id) + ORDER BY tier DESC inside the
-            # subquery keeps only the HIGHEST tier per post: a post
-            # that's new to us but already very popular could otherwise
-            # qualify for 1K, 5K, AND 10K simultaneously on the same day,
-            # showing as three redundant cards for one post.
+            # ── Milestone crossings — sound-driven UNION fan-page ──────
+            # DISTINCT ON (post_id) + ORDER BY tier DESC keeps only the
+            # HIGHEST tier per post — a post new to us but already very
+            # popular could otherwise qualify for 1K, 5K, AND 10K at
+            # once, showing as three redundant cards for one post.
             c.execute("""
                 SELECT * FROM (
                     SELECT DISTINCT ON (me.post_id)
                         me.post_id, me.tier, me.views, me.likes, me.crossed_date,
                         p.username, p.thumbnail,
-                        snd.title as sound_title, sg.name as song_name, sg.id as song_id
+                        snd.title as sound_title, sg.name as song_name, sg.id as song_id,
+                        'sound' as source_type
                     FROM milestone_events me
                     JOIN posts p ON p.post_id = me.post_id
                     JOIN sounds snd ON snd.id = p.sound_db_id
@@ -184,6 +178,20 @@ def get_daily_digest():
                     JOIN campaign_songs cs ON cs.song_id = sg.id
                     JOIN campaigns camp ON camp.id = cs.campaign_id AND camp.status = 'In Progress'
                     WHERE me.crossed_date = CURRENT_DATE
+                    ORDER BY me.post_id, me.tier DESC
+
+                    UNION ALL
+
+                    SELECT DISTINCT ON (me.post_id)
+                        me.post_id, me.tier, me.views, me.likes, me.crossed_date,
+                        p.username, p.thumbnail,
+                        NULL as sound_title, NULL as song_name, NULL as song_id,
+                        'fan_page' as source_type
+                    FROM milestone_events me
+                    JOIN posts p ON p.post_id = me.post_id
+                    JOIN artists a ON a.username = p.username
+                    WHERE me.crossed_date = CURRENT_DATE
+                    AND p.sound_db_id IS NULL
                     ORDER BY me.post_id, me.tier DESC
                 ) sub
                 ORDER BY tier DESC, likes DESC
@@ -195,13 +203,15 @@ def get_daily_digest():
             ]
 
             milestone_post_ids = [m["post_id"] for m in milestone_crossings]
+            exclude_ids = milestone_post_ids if milestone_post_ids else ['__none__']
 
-            # ── Today's activity — everything else from the last 24h ──
-            if milestone_post_ids:
-                c.execute("""
+            # ── Today's activity — everything else, both sources ──────
+            c.execute("""
+                SELECT * FROM (
                     SELECT
                         p.post_id, p.username, p.thumbnail, p.views, p.likes, p.created_at,
-                        snd.title as sound_title, sg.name as song_name, sg.id as song_id
+                        snd.title as sound_title, sg.name as song_name, sg.id as song_id,
+                        'sound' as source_type
                     FROM posts p
                     JOIN sounds snd ON snd.id = p.sound_db_id
                     JOIN songs sg ON sg.id = snd.song_id
@@ -209,39 +219,49 @@ def get_daily_digest():
                     JOIN campaigns camp ON camp.id = cs.campaign_id AND camp.status = 'In Progress'
                     WHERE p.created_at >= extract(epoch from now() - interval '24 hours')
                     AND p.post_id != ALL(%s)
-                    ORDER BY p.views DESC NULLS LAST
-                    LIMIT 15
-                """, (milestone_post_ids,))
-            else:
-                c.execute("""
+
+                    UNION ALL
+
                     SELECT
                         p.post_id, p.username, p.thumbnail, p.views, p.likes, p.created_at,
-                        snd.title as sound_title, sg.name as song_name, sg.id as song_id
+                        NULL as sound_title, NULL as song_name, NULL as song_id,
+                        'fan_page' as source_type
                     FROM posts p
-                    JOIN sounds snd ON snd.id = p.sound_db_id
-                    JOIN songs sg ON sg.id = snd.song_id
-                    JOIN campaign_songs cs ON cs.song_id = sg.id
-                    JOIN campaigns camp ON camp.id = cs.campaign_id AND camp.status = 'In Progress'
-                    WHERE p.created_at >= extract(epoch from now() - interval '24 hours')
-                    ORDER BY p.views DESC NULLS LAST
-                    LIMIT 15
-                """)
+                    JOIN artists a ON a.username = p.username
+                    WHERE p.sound_db_id IS NULL
+                    AND p.created_at >= extract(epoch from now() - interval '24 hours')
+                    AND p.post_id != ALL(%s)
+                ) sub
+                ORDER BY views DESC NULLS LAST
+                LIMIT 15
+            """, (exclude_ids, exclude_ids))
             todays_activity = [dict(r) for r in c.fetchall()]
 
-            # ── Weekly trend — posts/views per day, last 7 days ────────
+            # ── Weekly trend — posts/views per day, both sources ───────
             c.execute("""
-                SELECT
-                    ps.date,
-                    COUNT(DISTINCT ps.post_id) as posts,
-                    COALESCE(SUM(ps.views), 0) as views
-                FROM post_snapshots ps
-                JOIN posts p ON p.post_id = ps.post_id
-                JOIN sounds snd ON snd.id = p.sound_db_id
-                JOIN campaign_songs cs ON cs.song_id = snd.song_id
-                JOIN campaigns camp ON camp.id = cs.campaign_id AND camp.status = 'In Progress'
-                WHERE ps.date >= CURRENT_DATE - 6
-                GROUP BY ps.date
-                ORDER BY ps.date ASC
+                SELECT date, SUM(posts) as posts, SUM(views) as views
+                FROM (
+                    SELECT ps.date, COUNT(DISTINCT ps.post_id) as posts, COALESCE(SUM(ps.views), 0) as views
+                    FROM post_snapshots ps
+                    JOIN posts p ON p.post_id = ps.post_id
+                    JOIN sounds snd ON snd.id = p.sound_db_id
+                    JOIN campaign_songs cs ON cs.song_id = snd.song_id
+                    JOIN campaigns camp ON camp.id = cs.campaign_id AND camp.status = 'In Progress'
+                    WHERE ps.date >= CURRENT_DATE - 6
+                    GROUP BY ps.date
+
+                    UNION ALL
+
+                    SELECT ps.date, COUNT(DISTINCT ps.post_id) as posts, COALESCE(SUM(ps.views), 0) as views
+                    FROM post_snapshots ps
+                    JOIN posts p ON p.post_id = ps.post_id
+                    JOIN artists a ON a.username = p.username
+                    WHERE p.sound_db_id IS NULL
+                    AND ps.date >= CURRENT_DATE - 6
+                    GROUP BY ps.date
+                ) combined
+                GROUP BY date
+                ORDER BY date ASC
             """)
             weekly_trend = [
                 {"date": str(r["date"]), "posts": r["posts"], "views": r["views"]}

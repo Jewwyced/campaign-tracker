@@ -1086,6 +1086,9 @@ def ingest_fan_account(db_conn_factory, username):
                     with conn.cursor() as c:
                         for item in items:
                             ps = item.get("stats", {})
+                            post_id = item.get("id")
+                            item_likes = ps.get("diggCount", 0) or 0
+                            item_views = ps.get("playCount", 0) or 0
                             c.execute("""
                                 INSERT INTO posts (post_id, date, username, description, views, likes, comments, saves, created_at, followers_at_post)
                                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
@@ -1094,12 +1097,38 @@ def ingest_fan_account(db_conn_factory, username):
                                     comments=EXCLUDED.comments, saves=EXCLUDED.saves,
                                     followers_at_post=EXCLUDED.followers_at_post
                             """, (
-                                item.get("id"), today, username,
+                                post_id, today, username,
                                 item.get("desc", "")[:300],
-                                ps.get("playCount", 0), ps.get("diggCount", 0),
+                                item_views, item_likes,
                                 ps.get("commentCount", 0), ps.get("collectCount", 0),
                                 item.get("createTime"), followers
                             ))
+                            # Same daily-snapshot + milestone-event writes
+                            # sound-driven posts already get — this is what
+                            # was missing, and why a fan page going viral
+                            # never showed up in the "Crossed a Tier Today"
+                            # dashboard digest. Without this, fan pages were
+                            # completely invisible to the daily digest no
+                            # matter how well they performed.
+                            if post_id:
+                                c.execute("""
+                                    INSERT INTO post_snapshots (post_id, date, views, likes, comments, shares)
+                                    VALUES (%s,%s,%s,%s,%s,%s)
+                                    ON CONFLICT (post_id, date) DO UPDATE SET
+                                        views=EXCLUDED.views, likes=EXCLUDED.likes,
+                                        comments=EXCLUDED.comments, shares=EXCLUDED.shares
+                                """, (
+                                    post_id, today,
+                                    item_views, item_likes,
+                                    ps.get("commentCount", 0), ps.get("shareCount", 0)
+                                ))
+                                for tier in (1000, 5000, 10000):
+                                    if item_likes >= tier:
+                                        c.execute("""
+                                            INSERT INTO milestone_events (post_id, tier, crossed_date, views, likes)
+                                            VALUES (%s,%s,%s,%s,%s)
+                                            ON CONFLICT (post_id, tier) DO NOTHING
+                                        """, (post_id, tier, today, item_views, item_likes))
                     conn.commit()
         except Exception as e:
             _log(f"get_account_posts failed for @{username}: {e} — skipping posts")

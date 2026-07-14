@@ -111,7 +111,12 @@
   .creator-stats { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
 
   .loading { color: var(--text-muted); font-size: 14px; padding: 40px; text-align: center; }
+
+  .trend-canvas-wrap { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  canvas#weekly-trend-chart { width: 100% !important; height: 220px !important; }
+  .fan-page-badge { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; padding: 2px 7px; border-radius: 5px; background: #fce7f3; color: #be185d; margin-left: 6px; }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 </head>
 <body>
 <header>
@@ -163,58 +168,131 @@ function renderMilestones(crossings) {
   if (!crossings || !crossings.length) {
     return '<div class="digest-empty">No posts crossed a milestone in the last 24h.</div>';
   }
-  return `<div class="milestone-grid">${crossings.map(m => `
+  return `<div class="milestone-grid">${crossings.map(m => {
+    const label = m.source_type === 'fan_page'
+      ? 'their fan page' + '<span class="fan-page-badge">Fan Page</span>'
+      : `<b>${escapeHtml(m.sound_title || m.song_name || 'Unknown sound')}</b>`;
+    return `
     <a class="milestone-card" href="${tiktokUrl(m.username, m.post_id)}" target="_blank">
       ${m.thumbnail
         ? `<img class="milestone-thumb" src="${escapeHtml(m.thumbnail)}" loading="lazy">`
         : `<div class="milestone-thumb-placeholder">🎵</div>`}
       <div class="milestone-body">
         <div class="milestone-tier ${tierClass(m.tier_crossed)}">${tierLabel(m.tier_crossed)} likes</div>
-        <div class="milestone-summary">@${escapeHtml(m.username)} crossed ${tierLabel(m.tier_crossed)} likes using <b>${escapeHtml(m.sound_title || m.song_name || 'Unknown sound')}</b></div>
+        <div class="milestone-summary">@${escapeHtml(m.username)} crossed ${tierLabel(m.tier_crossed)} likes using ${label}</div>
         <div class="milestone-meta">${fmt(m.views)} views · ${fmt(m.likes)} likes</div>
       </div>
     </a>
-  `).join('')}</div>`;
+  `;
+  }).join('')}</div>`;
 }
 
 function renderActivity(activity) {
   if (!activity || !activity.length) {
     return '<div class="digest-empty">No other notable activity in the last 24h yet.</div>';
   }
-  return `<div class="activity-list">${activity.map(p => `
+  return `<div class="activity-list">${activity.map(p => {
+    const label = p.source_type === 'fan_page'
+      ? '<span class="fan-page-badge">Fan Page</span>'
+      : escapeHtml(p.sound_title || p.song_name || '');
+    return `
     <a class="activity-row" href="${tiktokUrl(p.username, p.post_id)}" target="_blank">
       ${p.thumbnail
         ? `<img class="activity-thumb" src="${escapeHtml(p.thumbnail)}" loading="lazy">`
         : `<div class="activity-thumb-placeholder"></div>`}
       <div class="activity-info">
         <div class="activity-username">@${escapeHtml(p.username)}</div>
-        <div class="activity-song">${escapeHtml(p.sound_title || p.song_name || '')}</div>
+        <div class="activity-song">${label}</div>
       </div>
       <div class="activity-stats">
         <div class="activity-views">${fmt(p.views)} views</div>
         <div class="activity-likes">${fmt(p.likes)} likes</div>
       </div>
     </a>
-  `).join('')}</div>`;
+  `;
+  }).join('')}</div>`;
 }
 
 function renderWeeklyTrend(trend) {
   if (!trend || !trend.length) {
     return '<div class="digest-empty">Not enough history yet to show a weekly trend — check back after a few days of the refresh cron running.</div>';
   }
-  const maxViews = Math.max(...trend.map(d => d.views || 0), 1);
-  return `<div class="trend-bars">${trend.map(d => {
-    const pct = Math.max((d.views || 0) / maxViews * 100, 2);
+  return '<div class="trend-canvas-wrap"><canvas id="weekly-trend-chart"></canvas></div>';
+}
+
+function drawWeeklyTrendChart(trend) {
+  const ctx = document.getElementById('weekly-trend-chart');
+  if (!ctx || !trend || !trend.length) return;
+  if (window._weeklyTrendChart) window._weeklyTrendChart.destroy();
+
+  const labels = trend.map(function(d) {
     const dt = new Date(d.date + 'T00:00:00');
-    const label = dt.toLocaleDateString('en-US', { weekday: 'short' });
-    return `
-      <div class="trend-bar-col">
-        <div class="trend-bar-value">${fmt(d.views)}</div>
-        <div class="trend-bar" style="height:${pct}%"></div>
-        <div class="trend-bar-label">${label}</div>
-      </div>
-    `;
-  }).join('')}</div>`;
+    return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  });
+  const views = trend.map(function(d) { return d.views || 0; });
+  const posts = trend.map(function(d) { return d.posts || 0; });
+
+  window._weeklyTrendChart = new Chart(ctx, {
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          type: 'bar',
+          label: 'Posts tracked',
+          data: posts,
+          backgroundColor: 'rgba(99,102,241,0.18)',
+          borderRadius: 4,
+          yAxisID: 'y1',
+          order: 2,
+        },
+        {
+          type: 'line',
+          label: 'Views',
+          data: views,
+          borderColor: '#6366f1',
+          backgroundColor: 'rgba(99,102,241,0.08)',
+          borderWidth: 2.5,
+          pointRadius: 4,
+          pointBackgroundColor: '#6366f1',
+          pointBorderColor: 'white',
+          pointBorderWidth: 2,
+          tension: 0.35,
+          fill: true,
+          yAxisID: 'y',
+          order: 1,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, position: 'top', align: 'end', labels: { boxWidth: 10, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: function(item) {
+              if (item.dataset.yAxisID === 'y') return 'Views: ' + fmt(item.raw);
+              return 'Posts: ' + item.raw;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+        y: {
+          position: 'left',
+          grid: { color: 'rgba(0,0,0,0.04)' },
+          ticks: { font: { size: 11 }, callback: function(v) { return fmt(v); } }
+        },
+        y1: {
+          position: 'right',
+          grid: { display: false },
+          ticks: { font: { size: 11 }, stepSize: 1 }
+        }
+      }
+    }
+  });
 }
 
 async function load() {
@@ -273,6 +351,8 @@ async function load() {
       `).join('')}
     </div>
   `;
+
+  drawWeeklyTrendChart(d.weekly_trend);
 }
 
 load();
