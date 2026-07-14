@@ -3,123 +3,185 @@
 <head>
 <meta charset="UTF-8">
 <title>Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #fafafa;
-    --surface: #ffffff;
-    --border: #e4e4e7;
-    --border-light: #f0f0f2;
-    --text-primary: #09090b;
-    --text-secondary: #52525b;
-    --text-muted: #a1a1aa;
-    --accent: #6366f1;
-    --accent-light: #eef2ff;
-    --success: #059669;
-    --success-bg: #ecfdf5;
+    --bg: #0a0d12;
+    --bg-grid: rgba(255,255,255,.025);
+    --surface: #12161f;
+    --surface-2: #171c27;
+    --border: #232838;
+    --border-soft: #1a1f2b;
+    --text-primary: #edeff3;
+    --text-secondary: #9aa3b8;
+    --text-muted: #5b6478;
+    --signal: #3ed598;
+    --signal-dim: rgba(62,213,152,.13);
+    --alert: #f5b841;
+    --alert-dim: rgba(245,184,65,.13);
+    --accent: #7c8cff;
+    --accent-dim: rgba(124,140,255,.13);
+    --fan: #ff6fa5;
+    --fan-dim: rgba(255,111,165,.13);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  header { display: flex; align-items: center; padding: 0 32px; border-bottom: 1px solid var(--border); height: 52px; background: white; }
-  header .nav a { font-size: 13px; color: var(--text-secondary); text-decoration: none; margin-right: 20px; }
-  header .nav a:hover { color: var(--text-primary); }
-  header .nav a.active { color: var(--text-primary); font-weight: 600; border-bottom: 2px solid var(--accent); padding-bottom: 2px; }
-  main { padding: 32px; max-width: 1100px; margin: 0 auto; }
+  body {
+    background:
+      repeating-linear-gradient(180deg, var(--bg-grid) 0px, var(--bg-grid) 1px, transparent 1px, transparent 3px),
+      var(--bg);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-feature-settings: "tnum"; }
 
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 32px; border-bottom: 1px solid var(--border);
+    height: 56px; background: var(--surface);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header .brand { display: flex; align-items: center; gap: 9px; font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 14px; letter-spacing: .2px; }
+  header .brand .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--signal); box-shadow: 0 0 0 3px var(--signal-dim); animation: pulse 2.2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+  header .nav { display: flex; gap: 2px; }
+  header .nav a {
+    font-size: 13px; color: var(--text-secondary); text-decoration: none;
+    padding: 8px 14px; border-radius: 7px; transition: color .15s, background .15s;
+  }
+  header .nav a:hover { color: var(--text-primary); background: var(--surface-2); }
+  header .nav a.active { color: var(--text-primary); background: var(--surface-2); }
+
+  main { padding: 36px 32px 60px; max-width: 1080px; margin: 0 auto; }
+
+  /* ── Hero / signal readout ───────────────────────── */
   .hero {
-    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-    border-radius: 16px; padding: 32px;
-    color: white; margin-bottom: 28px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 30px 32px;
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
   }
-  .hero-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; opacity: .8; margin-bottom: 8px; }
-  .hero-views { font-size: 52px; font-weight: 800; letter-spacing: -2px; line-height: 1; }
-  .hero-sub { font-size: 14px; opacity: .75; margin-top: 8px; }
-  .hero-stats { display: flex; gap: 32px; margin-top: 24px; padding-top: 24px; border-top: 1px solid rgba(255,255,255,.2); }
-  .hero-stat .val { font-size: 24px; font-weight: 700; }
-  .hero-stat .lbl { font-size: 12px; opacity: .7; margin-top: 2px; }
+  .hero::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--signal), var(--accent) 50%, transparent);
+  }
+  .hero-eyebrow {
+    display: flex; align-items: center; gap: 7px;
+    font-family: 'Space Grotesk', sans-serif; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted);
+    margin-bottom: 14px;
+  }
+  .hero-eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--signal); }
+  .hero-views { font-family: 'JetBrains Mono', monospace; font-size: 54px; font-weight: 700; letter-spacing: -1.5px; line-height: 1; color: var(--text-primary); }
+  .hero-sub { font-size: 13px; color: var(--text-secondary); margin-top: 10px; }
+  .hero-stats {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
+    margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--border-soft);
+  }
+  .hero-stat { padding-right: 16px; border-right: 1px solid var(--border-soft); }
+  .hero-stat:last-child { border-right: none; }
+  .hero-stat .val { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 600; }
+  .hero-stat .lbl { font-size: 11px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .5px; }
 
-  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 28px; }
-  .stat-card { background: white; border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
-  .stat-card .label { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
-  .stat-card .value { font-size: 32px; font-weight: 800; margin-top: 8px; letter-spacing: -1px; }
-  .stat-card .sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
-  .stat-card .trend { font-size: 13px; font-weight: 600; color: var(--success); margin-top: 4px; }
+  /* ── AI analyst note ─────────────────────────────── */
+  .ai-box {
+    background: var(--accent-dim); border: 1px solid rgba(124,140,255,.28);
+    border-radius: 12px; padding: 18px 20px; margin-bottom: 24px;
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .ai-box .glyph { font-size: 15px; color: var(--accent); flex-shrink: 0; margin-top: 1px; }
+  .ai-label { font-family: 'Space Grotesk', sans-serif; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; color: var(--accent); margin-bottom: 6px; }
+  .ai-text { font-size: 14px; line-height: 1.65; color: #dfe2f5; }
 
-  .ai-box { background: var(--accent-light); border: 1px solid #c7d2fe; border-radius: 12px; padding: 18px 20px; margin-bottom: 28px; }
-  .ai-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--accent); margin-bottom: 8px; }
-  .ai-text { font-size: 14px; line-height: 1.7; color: #3730a3; }
+  /* ── Section scaffolding ──────────────────────────── */
+  .digest-section { margin-bottom: 30px; }
+  .digest-section-title {
+    display: flex; align-items: center; gap: 8px;
+    font-family: 'Space Grotesk', sans-serif; font-size: 14px; font-weight: 600;
+    margin-bottom: 13px; color: var(--text-primary);
+  }
+  .digest-section-title .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .status-dot.live { background: var(--signal); box-shadow: 0 0 0 3px var(--signal-dim); }
+  .status-dot.alert { background: var(--alert); box-shadow: 0 0 0 3px var(--alert-dim); }
+  .status-dot.idle { background: var(--text-muted); }
+  .digest-empty {
+    color: var(--text-muted); font-size: 13px; padding: 22px; text-align: center;
+    background: var(--surface); border: 1px dashed var(--border); border-radius: 12px;
+  }
 
-  /* Digest sections */
-  .digest-section { margin-bottom: 32px; }
-  .digest-section-title { font-size: 15px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
-  .digest-empty { color: var(--text-muted); font-size: 13px; padding: 20px; text-align: center; background: white; border: 1px solid var(--border); border-radius: 12px; }
-
-  .milestone-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  /* ── Milestone alerts ─────────────────────────────── */
+  .milestone-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
   .milestone-card {
-    display: flex; gap: 12px; background: white; border: 1px solid var(--border);
-    border-radius: 14px; padding: 14px; cursor: pointer; transition: box-shadow .15s, border-color .15s;
-    text-decoration: none; color: inherit;
+    display: flex; gap: 12px; background: var(--surface); border: 1px solid var(--border);
+    border-left: 3px solid var(--alert);
+    border-radius: 10px; padding: 13px 14px; cursor: pointer;
+    transition: border-color .15s, transform .1s; text-decoration: none; color: inherit;
   }
-  .milestone-card:hover { border-color: var(--accent); box-shadow: 0 2px 12px rgba(99,102,241,.1); }
-  .milestone-thumb { width: 56px; height: 74px; border-radius: 8px; object-fit: cover; background: var(--surface); flex-shrink: 0; }
-  .milestone-thumb-placeholder { width: 56px; height: 74px; border-radius: 8px; background: linear-gradient(135deg, #f0f0f4, #e8e8ec); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 20px; color: var(--text-muted); }
+  .milestone-card:hover { border-color: var(--alert); transform: translateY(-1px); }
+  .milestone-card:hover { border-left-color: var(--alert); }
+  .milestone-thumb { width: 50px; height: 66px; border-radius: 7px; object-fit: cover; background: var(--surface-2); flex-shrink: 0; }
+  .milestone-thumb-placeholder { width: 50px; height: 66px; border-radius: 7px; background: var(--surface-2); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 18px; }
   .milestone-body { min-width: 0; flex: 1; }
-  .milestone-tier { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; margin-bottom: 5px; }
-  .milestone-tier.t1000 { background: #fef3c7; color: #b45309; }
-  .milestone-tier.t5000 { background: #e0e7ff; color: #4338ca; }
-  .milestone-tier.t10000 { background: #fce7f3; color: #be185d; }
-  .milestone-summary { font-size: 13px; font-weight: 600; line-height: 1.4; }
-  .milestone-summary b { color: var(--accent); }
-  .milestone-meta { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+  .milestone-tier {
+    display: inline-flex; align-items: center; gap: 4px; font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 5px; margin-bottom: 6px;
+    background: var(--alert-dim); color: var(--alert);
+  }
+  .milestone-summary { font-size: 13px; line-height: 1.4; color: var(--text-primary); }
+  .milestone-summary b { color: var(--accent); font-weight: 600; }
+  .milestone-meta { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+  .fan-page-badge {
+    display: inline-block; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
+    padding: 2px 6px; border-radius: 4px; background: var(--fan-dim); color: var(--fan); margin-left: 5px;
+  }
 
-  .activity-list { display: flex; flex-direction: column; gap: 8px; }
+  /* ── Activity feed ────────────────────────────────── */
+  .activity-list { display: flex; flex-direction: column; gap: 6px; }
   .activity-row {
-    display: flex; align-items: center; gap: 12px; background: white; border: 1px solid var(--border);
-    border-radius: 12px; padding: 10px 16px; text-decoration: none; color: inherit;
+    display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 9px 14px; text-decoration: none; color: inherit;
     transition: border-color .15s;
   }
-  .activity-row:hover { border-color: var(--accent); }
-  .activity-thumb { width: 36px; height: 48px; border-radius: 6px; object-fit: cover; background: var(--surface); flex-shrink: 0; }
-  .activity-thumb-placeholder { width: 36px; height: 48px; border-radius: 6px; background: linear-gradient(135deg, #f0f0f4, #e8e8ec); flex-shrink: 0; }
+  .activity-row:hover { border-color: var(--signal); }
+  .activity-thumb { width: 32px; height: 43px; border-radius: 5px; object-fit: cover; background: var(--surface-2); flex-shrink: 0; }
+  .activity-thumb-placeholder { width: 32px; height: 43px; border-radius: 5px; background: var(--surface-2); flex-shrink: 0; }
   .activity-info { flex: 1; min-width: 0; }
   .activity-username { font-size: 13px; font-weight: 600; }
-  .activity-song { font-size: 12px; color: var(--text-muted); }
+  .activity-song { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
   .activity-stats { text-align: right; flex-shrink: 0; }
-  .activity-views { font-size: 14px; font-weight: 700; color: var(--success); }
-  .activity-likes { font-size: 11px; color: var(--text-muted); }
+  .activity-views { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; color: var(--signal); }
+  .activity-likes { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); }
 
-  .trend-bars { display: flex; align-items: flex-end; gap: 8px; height: 100px; background: white; border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
-  .trend-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; }
-  .trend-bar { width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 3px; }
-  .trend-bar-label { font-size: 10px; color: var(--text-muted); margin-top: 4px; }
-  .trend-bar-value { font-size: 10px; font-weight: 700; color: var(--text-secondary); }
+  /* ── Weekly trend (Chart.js host) ─────────────────── */
+  .trend-canvas-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+  canvas#weekly-trend-chart { width: 100% !important; height: 220px !important; }
 
-  .section-title { font-size: 15px; font-weight: 700; margin-bottom: 14px; }
-  .campaigns-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 28px; }
+  /* ── Campaigns ────────────────────────────────────── */
+  .section-title { font-family: 'Space Grotesk', sans-serif; font-size: 14px; font-weight: 600; margin-bottom: 13px; }
+  .campaigns-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
   .campaign-row {
     display: flex; align-items: center; justify-content: space-between;
-    background: white; border: 1px solid var(--border); border-radius: 12px;
-    padding: 16px 20px; cursor: pointer; transition: border-color .15s, box-shadow .15s;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 15px 18px; cursor: pointer; transition: border-color .15s;
   }
-  .campaign-row:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(99,102,241,.08); }
-  .campaign-name { font-size: 15px; font-weight: 600; }
+  .campaign-row:hover { border-color: var(--accent); }
+  .campaign-name { font-size: 14px; font-weight: 600; }
   .campaign-artist { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
-  .campaign-views { font-size: 20px; font-weight: 800; color: var(--success); }
-  .campaign-posts { font-size: 12px; color: var(--text-muted); margin-top: 2px; text-align: right; }
+  .campaign-views { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; color: var(--signal); }
+  .campaign-posts { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); margin-top: 2px; text-align: right; }
 
-  .top-creator { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
-  .creator-name { font-size: 18px; font-weight: 700; }
-  .creator-stats { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
-
-  .loading { color: var(--text-muted); font-size: 14px; padding: 40px; text-align: center; }
-
-  .trend-canvas-wrap { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
-  canvas#weekly-trend-chart { width: 100% !important; height: 220px !important; }
-  .fan-page-badge { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; padding: 2px 7px; border-radius: 5px; background: #fce7f3; color: #be185d; margin-left: 6px; }
+  .loading { color: var(--text-muted); font-size: 14px; padding: 60px; text-align: center; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 </head>
 <body>
 <header>
+  <div class="brand"><span class="dot"></span>CAMPAIGN TRACKER</div>
   <div class="nav">
     <a href="/" class="active">Dashboard</a>
     <a href="/campaigns">Campaigns</a>
@@ -158,9 +220,9 @@ function tierClass(tier) {
   return 't1000';
 }
 function tierLabel(tier) {
-  if (tier >= 10000) return '🥇 10K';
-  if (tier >= 5000) return '🥈 5K';
-  return '🥉 1K';
+  if (tier >= 10000) return '10K';
+  if (tier >= 5000) return '5K';
+  return '1K';
 }
 
 function renderMilestones(crossings) {
@@ -177,7 +239,7 @@ function renderMilestones(crossings) {
         ? `<img class="milestone-thumb" src="${escapeHtml(m.thumbnail)}" loading="lazy">`
         : `<div class="milestone-thumb-placeholder">🎵</div>`}
       <div class="milestone-body">
-        <div class="milestone-tier ${tierClass(m.tier_crossed)}">${tierLabel(m.tier_crossed)} likes</div>
+        <div class="milestone-tier">${tierLabel(m.tier_crossed)} LIKES</div>
         <div class="milestone-summary">@${escapeHtml(m.username)} crossed ${tierLabel(m.tier_crossed)} likes using ${label}</div>
         <div class="milestone-meta">${fmt(m.views)} views · ${fmt(m.likes)} likes</div>
       </div>
@@ -239,7 +301,7 @@ function drawWeeklyTrendChart(trend) {
           type: 'bar',
           label: 'Posts tracked',
           data: posts,
-          backgroundColor: 'rgba(99,102,241,0.18)',
+          backgroundColor: 'rgba(124,140,255,0.16)',
           borderRadius: 4,
           yAxisID: 'y1',
           order: 2,
@@ -248,12 +310,12 @@ function drawWeeklyTrendChart(trend) {
           type: 'line',
           label: 'Views',
           data: views,
-          borderColor: '#6366f1',
-          backgroundColor: 'rgba(99,102,241,0.08)',
+          borderColor: '#3ed598',
+          backgroundColor: 'rgba(62,213,152,0.08)',
           borderWidth: 2.5,
           pointRadius: 4,
-          pointBackgroundColor: '#6366f1',
-          pointBorderColor: 'white',
+          pointBackgroundColor: '#3ed598',
+          pointBorderColor: '#0a0d12',
           pointBorderWidth: 2,
           tension: 0.35,
           fill: true,
@@ -267,8 +329,13 @@ function drawWeeklyTrendChart(trend) {
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { display: true, position: 'top', align: 'end', labels: { boxWidth: 10, font: { size: 11 } } },
+        legend: { display: true, position: 'top', align: 'end', labels: { boxWidth: 10, font: { size: 11, family: "'JetBrains Mono', monospace" }, color: '#9aa3b8' } },
         tooltip: {
+          backgroundColor: '#171c27',
+          borderColor: '#232838',
+          borderWidth: 1,
+          titleFont: { family: "'JetBrains Mono', monospace" },
+          bodyFont: { family: "'JetBrains Mono', monospace" },
           callbacks: {
             label: function(item) {
               if (item.dataset.yAxisID === 'y') return 'Views: ' + fmt(item.raw);
@@ -278,16 +345,16 @@ function drawWeeklyTrendChart(trend) {
         }
       },
       scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+        x: { grid: { display: false }, ticks: { font: { size: 11, family: "'JetBrains Mono', monospace" }, color: '#5b6478' } },
         y: {
           position: 'left',
-          grid: { color: 'rgba(0,0,0,0.04)' },
-          ticks: { font: { size: 11 }, callback: function(v) { return fmt(v); } }
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: { font: { size: 11, family: "'JetBrains Mono', monospace" }, color: '#5b6478', callback: function(v) { return fmt(v); } }
         },
         y1: {
           position: 'right',
           grid: { display: false },
-          ticks: { font: { size: 11 }, stepSize: 1 }
+          ticks: { font: { size: 11, family: "'JetBrains Mono', monospace" }, color: '#5b6478', stepSize: 1 }
         }
       }
     }
@@ -299,10 +366,14 @@ async function load() {
   if (!res.ok) { document.getElementById('content').innerHTML = '<div class="loading">Could not load dashboard.</div>'; return; }
   const d = await res.json();
 
+  const hasMilestones = d.milestone_crossings && d.milestone_crossings.length;
+  const hasActivity = d.todays_activity && d.todays_activity.length;
+  const hasTrend = d.weekly_trend && d.weekly_trend.length;
+
   document.getElementById('content').innerHTML = `
     <div class="hero">
-      <div class="hero-title">Total Views</div>
-      <div class="hero-views">${fmt(d.total_views)}</div>
+      <div class="hero-eyebrow"><span class="dot"></span>Total Views Tracked</div>
+      <div class="hero-views mono">${fmt(d.total_views)}</div>
       <div class="hero-sub">Across ${d.active_campaigns} active campaign${d.active_campaigns !== 1 ? 's' : ''}</div>
       <div class="hero-stats">
         <div class="hero-stat"><div class="val">${fmt(d.total_posts)}</div><div class="lbl">Posts tracked</div></div>
@@ -315,22 +386,25 @@ async function load() {
 
     ${d.ai_summary ? `
     <div class="ai-box">
-      <div class="ai-label">✦ AI Daily Summary</div>
-      <div class="ai-text">${escapeHtml(stripMd(d.ai_summary))}</div>
+      <div class="glyph">✦</div>
+      <div>
+        <div class="ai-label">Analyst Summary</div>
+        <div class="ai-text">${escapeHtml(stripMd(d.ai_summary))}</div>
+      </div>
     </div>` : ''}
 
     <div class="digest-section">
-      <div class="digest-section-title">🏆 Crossed a Tier Today</div>
+      <div class="digest-section-title"><span class="status-dot ${hasMilestones ? 'alert' : 'idle'}"></span>Crossed a Tier Today</div>
       ${renderMilestones(d.milestone_crossings)}
     </div>
 
     <div class="digest-section">
-      <div class="digest-section-title">📈 Today's Activity</div>
+      <div class="digest-section-title"><span class="status-dot ${hasActivity ? 'live' : 'idle'}"></span>Today's Activity</div>
       ${renderActivity(d.todays_activity)}
     </div>
 
     <div class="digest-section">
-      <div class="digest-section-title">📅 Weekly Trend</div>
+      <div class="digest-section-title"><span class="status-dot ${hasTrend ? 'live' : 'idle'}"></span>Weekly Trend</div>
       ${renderWeeklyTrend(d.weekly_trend)}
     </div>
 
