@@ -115,6 +115,59 @@ Write 2-3 sentences a music marketing exec would want to read. Be specific with 
         return None
 
 
+def generate_digest_insight(milestone_crossings, todays_activity):
+    """Given today's milestone crossings and recent activity (up to 10 posts each),
+    ask Claude for a short analysis of what's actually happening today —
+    which campaigns/sounds are driving it, and any real pattern across creators.
+    Returns None if no key is set or the call fails — caller should fall back
+    to a plain computed summary."""
+    if not ANTHROPIC_API_KEY:
+        return None
+    if not milestone_crossings and not todays_activity:
+        return None
+
+    def line(p):
+        tag = "fan page" if p.get("source_type") == "fan_page" else (p.get("campaign_name") or p.get("sound_title") or p.get("song_name") or "untagged sound")
+        return f"- @{p['username']}: {p.get('views', 0):,} views, {p.get('likes', 0):,} likes — {tag}"
+
+    milestone_lines = "\n".join(line(m) for m in milestone_crossings[:10]) if milestone_crossings else "None today."
+    activity_lines = "\n".join(line(p) for p in todays_activity[:10]) if todays_activity else "None today."
+
+    prompt = f"""You are writing the "Daily Digest" analysis for a music marketing team's TikTok campaign dashboard.
+
+Posts that crossed a like-count milestone today (up to 10):
+{milestone_lines}
+
+Other recent posts in the last 24h (up to 10):
+{activity_lines}
+
+Write a 2-4 sentence analysis identifying real patterns: which campaign or sound is actually driving momentum, whether it's official campaign activity or organic fan-account activity, and anything notable about which creators are picking it up. Be specific and use real numbers from above — do not invent details not shown. Plain, confident tone — no fluff, no exclamation points, no generic phrases like "great progress.\""""
+
+    try:
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "claude-haiku-4-5",
+                "max_tokens": 220,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            print(f"  Digest insight error: {resp.status_code} {resp.text[:200]}")
+            return None
+        data = resp.json()
+        return data["content"][0]["text"].strip()
+    except Exception as e:
+        print(f"  Digest insight exception: {e}")
+        return None
+
+
 def generate_campaign_insight(campaign_name, artist, songs):
     """Generate a 2-3 sentence strategic recommendation for a campaign."""
     if not ANTHROPIC_API_KEY or not songs:

@@ -3,7 +3,7 @@ services/dashboard_service.py — owns the SQL and aggregation logic behind
 the homepage and the campaign summary.
 """
 from db import db
-from services.ai_service import generate_daily_campaign_summary
+from services.ai_service import generate_daily_campaign_summary, generate_digest_insight
 
 # Engagement tiers for milestone detection, checked highest-first so a
 # post that jumped straight from 200 to 15,000 likes overnight gets
@@ -119,6 +119,7 @@ def get_dashboard_stats():
     ai_summary = generate_daily_campaign_summary(ai_stats)
 
     digest = get_daily_digest()
+    digest_insight = generate_digest_insight(digest["milestone_crossings"], digest["todays_activity"])
 
     return {
         "total_views": totals["total_views"],
@@ -135,6 +136,7 @@ def get_dashboard_stats():
         "milestone_crossings": digest["milestone_crossings"],
         "todays_activity": digest["todays_activity"],
         "weekly_trend": digest["weekly_trend"],
+        "digest_insight": digest_insight,
     }
 
 
@@ -201,7 +203,7 @@ def get_daily_digest():
                     )
                 ) sub
                 ORDER BY tier DESC, likes DESC
-                LIMIT 20
+                LIMIT 10
             """)
             milestone_rows = [dict(r) for r in c.fetchall()]
             milestone_crossings = [
@@ -241,7 +243,7 @@ def get_daily_digest():
                     AND p.post_id != ALL(%s)
                 ) sub
                 ORDER BY views DESC NULLS LAST
-                LIMIT 15
+                LIMIT 10
             """, (exclude_ids, exclude_ids))
             todays_activity = [dict(r) for r in c.fetchall()]
 

@@ -179,6 +179,35 @@ function milestoneTakeaway(crossings) {
   return `${crossings.length} milestone${crossings.length !== 1 ? 's' : ''} today — ${parts.join(', ')}.`;
 }
 
+function renderDigestVideos(videos) {
+  if (!videos || !videos.length) {
+    return '<div class="digest-empty">No videos posted in the last 24h yet.</div>';
+  }
+  const rows = videos.map(p => {
+    const isFan = p.source_type === 'fan_page';
+    const context = isFan
+      ? '<span class="fan-page-badge">Fan Page</span>'
+      : `${escapeHtml(p.campaign_name || p.sound_title || p.song_name || 'Untagged sound')}${p.campaign_artist ? ' · ' + escapeHtml(p.campaign_artist) : ''}`;
+    const milestoneTag = p.is_milestone ? `<span class="milestone-tier ${tierClass(p.tier_crossed)}" style="margin-left:6px;">${tierLabel(p.tier_crossed)} milestone</span>` : '';
+    return `
+    <a class="activity-row" href="${tiktokUrl(p.username, p.post_id)}" target="_blank">
+      ${p.thumbnail
+        ? `<img class="activity-thumb" src="${escapeHtml(p.thumbnail)}" loading="lazy">`
+        : `<div class="activity-thumb-placeholder"></div>`}
+      <div class="activity-info">
+        <div class="activity-username">@${escapeHtml(p.username)} ${milestoneTag}</div>
+        <div class="activity-song">${context}</div>
+      </div>
+      <div class="activity-stats">
+        <div class="activity-views">${fmt(p.views)} views</div>
+        <div class="activity-likes">${fmt(p.likes)} likes</div>
+      </div>
+    </a>
+  `;
+  }).join('');
+  return `<div class="activity-list">${rows}</div>`;
+}
+
 function renderMilestones(crossings) {
   if (!crossings || !crossings.length) {
     return '<div class="digest-empty">No posts crossed a milestone in the last 24h.</div>';
@@ -330,6 +359,18 @@ async function load() {
   if (!res.ok) { document.getElementById('content').innerHTML = '<div class="loading">Could not load dashboard.</div>'; return; }
   const d = await res.json();
 
+  // Combine milestones + activity into one "recent videos" list, capped at 10,
+  // milestones first since they're the more notable signal.
+  const combined = [
+    ...(d.milestone_crossings || []).map(m => ({...m, is_milestone: true})),
+    ...(d.todays_activity || [])
+  ].slice(0, 10);
+
+  const fallbackTakeaway = [
+    (d.milestone_crossings && d.milestone_crossings.length) ? milestoneTakeaway(d.milestone_crossings) : '',
+    (d.todays_activity && d.todays_activity.length) ? activityTakeaway(d.todays_activity) : ''
+  ].filter(Boolean).join(' ');
+
   document.getElementById('content').innerHTML = `
     <div class="hero">
       <div class="hero-title">Total Views</div>
@@ -351,13 +392,9 @@ async function load() {
     </div>` : ''}
 
     <div class="digest-section">
-      <div class="digest-section-title">🏆 Crossed a Tier Today</div>
-      ${renderMilestones(d.milestone_crossings)}
-    </div>
-
-    <div class="digest-section">
-      <div class="digest-section-title">📈 Today's Activity</div>
-      ${renderActivity(d.todays_activity)}
+      <div class="digest-section-title">📋 Daily Digest — Recent Videos</div>
+      <div class="section-takeaway">${escapeHtml(stripMd(d.digest_insight || fallbackTakeaway || 'No notable activity in the last 24h yet.'))}</div>
+      ${renderDigestVideos(combined)}
     </div>
 
     <div class="digest-section">
