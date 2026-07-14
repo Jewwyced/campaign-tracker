@@ -51,6 +51,7 @@
   /* Digest sections */
   .digest-section { margin-bottom: 32px; }
   .digest-section-title { font-size: 15px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+  .section-takeaway { font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.5; padding: 10px 14px; background: white; border: 1px solid var(--border); border-radius: 9px; }
   .digest-empty { color: var(--text-muted); font-size: 13px; padding: 20px; text-align: center; background: white; border: 1px solid var(--border); border-radius: 12px; }
 
   .milestone-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
@@ -168,14 +169,26 @@ function tierLabel(tier) {
   return '🥉 1K';
 }
 
+function milestoneTakeaway(crossings) {
+  const soundOnes = crossings.filter(m => m.source_type !== 'fan_page');
+  const fanOnes = crossings.filter(m => m.source_type === 'fan_page');
+  const campaignNames = [...new Set(soundOnes.map(m => m.campaign_name).filter(Boolean))];
+  const parts = [];
+  if (soundOnes.length) parts.push(`${soundOnes.length} from ${campaignNames.length ? campaignNames.join(', ') : 'active campaigns'}`);
+  if (fanOnes.length) parts.push(`${fanOnes.length} from fan accounts`);
+  return `${crossings.length} milestone${crossings.length !== 1 ? 's' : ''} today — ${parts.join(', ')}.`;
+}
+
 function renderMilestones(crossings) {
   if (!crossings || !crossings.length) {
     return '<div class="digest-empty">No posts crossed a milestone in the last 24h.</div>';
   }
-  return `<div class="milestone-grid">${crossings.map(m => {
-    const label = m.source_type === 'fan_page'
+  const takeaway = `<div class="section-takeaway">${escapeHtml(milestoneTakeaway(crossings))}</div>`;
+  const cards = crossings.map(m => {
+    const isFan = m.source_type === 'fan_page';
+    const label = isFan
       ? 'their fan page' + '<span class="fan-page-badge">Fan Page</span>'
-      : `<b>${escapeHtml(m.sound_title || m.song_name || 'Unknown sound')}</b>`;
+      : `<b>${escapeHtml(m.campaign_name || m.sound_title || m.song_name || 'Unknown sound')}</b>${m.campaign_artist ? ' · ' + escapeHtml(m.campaign_artist) : ''}`;
     return `
     <a class="milestone-card" href="${tiktokUrl(m.username, m.post_id)}" target="_blank">
       ${m.thumbnail
@@ -188,17 +201,30 @@ function renderMilestones(crossings) {
       </div>
     </a>
   `;
-  }).join('')}</div>`;
+  }).join('');
+  return `${takeaway}<div class="milestone-grid">${cards}</div>`;
+}
+
+function activityTakeaway(activity) {
+  const soundOnes = activity.filter(p => p.source_type !== 'fan_page');
+  const fanOnes = activity.filter(p => p.source_type === 'fan_page');
+  const topViews = Math.max(...activity.map(p => p.views || 0));
+  const parts = [];
+  if (soundOnes.length) parts.push(`${soundOnes.length} tied to campaign sounds`);
+  if (fanOnes.length) parts.push(`${fanOnes.length} from fan accounts`);
+  return `${activity.length} post${activity.length !== 1 ? 's' : ''} in the last 24h — ${parts.join(', ')}. Top post: ${fmt(topViews)} views.`;
 }
 
 function renderActivity(activity) {
   if (!activity || !activity.length) {
     return '<div class="digest-empty">No other notable activity in the last 24h yet.</div>';
   }
-  return `<div class="activity-list">${activity.map(p => {
-    const label = p.source_type === 'fan_page'
+  const takeaway = `<div class="section-takeaway">${escapeHtml(activityTakeaway(activity))}</div>`;
+  const rows = activity.map(p => {
+    const isFan = p.source_type === 'fan_page';
+    const label = isFan
       ? '<span class="fan-page-badge">Fan Page</span>'
-      : escapeHtml(p.sound_title || p.song_name || '');
+      : `${escapeHtml(p.campaign_name || p.sound_title || p.song_name || '')}`;
     return `
     <a class="activity-row" href="${tiktokUrl(p.username, p.post_id)}" target="_blank">
       ${p.thumbnail
@@ -214,7 +240,8 @@ function renderActivity(activity) {
       </div>
     </a>
   `;
-  }).join('')}</div>`;
+  }).join('');
+  return `${takeaway}<div class="activity-list">${rows}</div>`;
 }
 
 function trendChangeBadge(trend) {
