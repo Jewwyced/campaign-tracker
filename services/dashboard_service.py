@@ -171,6 +171,7 @@ def get_daily_digest():
                             me.post_id, me.tier, me.views, me.likes, me.crossed_date,
                             p.username, p.thumbnail,
                             snd.title as sound_title, sg.name as song_name, sg.id as song_id,
+                            camp.name as campaign_name, camp.artist as campaign_artist,
                             'sound' as source_type
                         FROM milestone_events me
                         JOIN posts p ON p.post_id = me.post_id
@@ -189,6 +190,7 @@ def get_daily_digest():
                             me.post_id, me.tier, me.views, me.likes, me.crossed_date,
                             p.username, p.thumbnail,
                             NULL as sound_title, NULL as song_name, NULL as song_id,
+                            NULL as campaign_name, NULL as campaign_artist,
                             'fan_page' as source_type
                         FROM milestone_events me
                         JOIN posts p ON p.post_id = me.post_id
@@ -215,6 +217,7 @@ def get_daily_digest():
                     SELECT
                         p.post_id, p.username, p.thumbnail, p.views, p.likes, p.created_at,
                         snd.title as sound_title, sg.name as song_name, sg.id as song_id,
+                        camp.name as campaign_name, camp.artist as campaign_artist,
                         'sound' as source_type
                     FROM posts p
                     JOIN sounds snd ON snd.id = p.sound_db_id
@@ -229,6 +232,7 @@ def get_daily_digest():
                     SELECT
                         p.post_id, p.username, p.thumbnail, p.views, p.likes, p.created_at,
                         NULL as sound_title, NULL as song_name, NULL as song_id,
+                        NULL as campaign_name, NULL as campaign_artist,
                         'fan_page' as source_type
                     FROM posts p
                     JOIN artists a ON a.username = p.username
