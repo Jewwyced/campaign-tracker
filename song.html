@@ -179,6 +179,18 @@
   .btn-preview:hover { background: var(--accent); color: white; }
   .btn-approve:disabled, .btn-reject:disabled, .btn-preview:disabled { opacity: .5; cursor: default; }
 
+  .pending-row.focused { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-light); }
+  .pending-row-wrap.removing { animation: fadeOutRow .2s ease forwards; }
+  @keyframes fadeOutRow { to { opacity: 0; transform: translateX(12px); max-height: 0; margin: 0; padding: 0; } }
+  .keyboard-hint {
+    font-size: 12px; color: var(--text-muted); padding: 8px 18px;
+    border-bottom: 1px solid var(--border-light); background: var(--bg);
+  }
+  .keyboard-hint kbd {
+    font-family: inherit; font-size: 11px; font-weight: 700; background: white;
+    border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; margin: 0 2px;
+  }
+
   .preview-strip { display: flex; gap: 8px; padding: 0 18px 14px; flex-wrap: wrap; }
   .preview-thumb {
     display: block; width: 72px; aspect-ratio: 9/16; border-radius: 8px;
@@ -258,6 +270,7 @@
     <div style="padding: 12px 18px; border-bottom: 1px solid var(--border-light); font-size: 12px; color: var(--text-muted);">
       These sounds were found by "Find New Sounds" but haven't been added to the canonical set yet. Review each one and approve or reject.
     </div>
+    <div class="keyboard-hint"><kbd>A</kbd> approve · <kbd>R</kbd> reject · <kbd>↓</kbd>/<kbd>↑</kbd> move between rows — click a row first to focus it</div>
     <div class="sounds-list" id="pending-list-inline" style="padding: 12px 18px;"></div>
   </div>
 
@@ -480,6 +493,8 @@ async function loadPendingReview() {
   }
 }
 
+let _pendingFocusIndex = -1;
+
 function renderPendingPanel(pending) {
   const el = document.getElementById('pending-list-inline');
   if (!pending.length) {
@@ -488,28 +503,31 @@ function renderPendingPanel(pending) {
   }
   el.innerHTML = pending.map(s => `
     <div class="pending-row-wrap" id="pending-wrap-${s.id}">
-      <div class="pending-row" id="pending-row-${s.id}">
+      <div class="pending-row" id="pending-row-${s.id}" tabindex="0" onclick="focusPendingRow(${s.id})">
         <div class="pending-info">
           <div class="pending-title">${escapeHtml(s.title || 'Unknown sound')}<span class="pending-source-badge">${escapeHtml(s.discovered_via || 'unknown')}</span>${s.likely_match ? '<span class="pending-source-badge" style="background:var(--success-bg);color:var(--success);">✓ likely match</span>' : '<span class="pending-source-badge" style="background:var(--warning-bg);color:var(--warning);">⚠ needs review</span>'}</div>
           <div class="pending-meta">${escapeHtml(s.author || '')} · ${fmt(s.current_video_count)} videos</div>
         </div>
         <div class="pending-actions">
-          <button class="btn-preview" id="preview-btn-${s.id}" onclick="previewSound(${s.id})">▶ Preview videos</button>
-          <button class="btn-approve" onclick="approvePending(${s.id})">Approve</button>
-          <button class="btn-reject" onclick="rejectPending(${s.id})">Reject</button>
+          <button class="btn-approve" onclick="event.stopPropagation();approvePending(${s.id})">Approve</button>
+          <button class="btn-reject" onclick="event.stopPropagation();rejectPending(${s.id})">Reject</button>
         </div>
       </div>
-      <div id="preview-strip-${s.id}"></div>
+      <div id="preview-strip-${s.id}"><div class="preview-loading">Loading preview...</div></div>
     </div>
   `).join('');
+
+  // Auto-load every preview in parallel, right away, instead of waiting for
+  // a click — by the time you scroll to a row it's usually already loaded.
+  // Fire-and-forget: each one fills in independently as it arrives.
+  pending.forEach(s => loadPreviewInto(s.id));
+
+  _pendingFocusIndex = -1;
 }
 
-async function previewSound(soundDbId) {
-  const btn = document.getElementById(`preview-btn-${soundDbId}`);
+async function loadPreviewInto(soundDbId) {
   const strip = document.getElementById(`preview-strip-${soundDbId}`);
-  btn.disabled = true;
-  btn.textContent = 'Loading...';
-  strip.innerHTML = '<div class="preview-loading">Fetching sample videos...</div>';
+  if (!strip) return;
   try {
     const res = await fetch(`/api/sounds/${soundDbId}/preview_posts`);
     const posts = res.ok ? await res.json() : [];
@@ -526,31 +544,116 @@ async function previewSound(soundDbId) {
   } catch (e) {
     strip.innerHTML = '<div class="preview-loading">Could not load preview videos.</div>';
   }
-  btn.disabled = false;
-  btn.textContent = '▶ Preview videos';
+}
+
+function focusPendingRow(soundDbId) {
+  document.querySelectorAll('.pending-row.focused').forEach(r => r.classList.remove('focused'));
+  const row = document.getElementById(`pending-row-${soundDbId}`);
+  if (row) {
+    row.classList.add('focused');
+    const rows = Array.from(document.querySelectorAll('.pending-row'));
+    _pendingFocusIndex = rows.indexOf(row);
+  }
+}
+
+function _focusPendingByIndex(i) {
+  const rows = Array.from(document.querySelectorAll('.pending-row'));
+  if (!rows.length) return;
+  _pendingFocusIndex = Math.max(0, Math.min(i, rows.length - 1));
+  document.querySelectorAll('.pending-row.focused').forEach(r => r.classList.remove('focused'));
+  const row = rows[_pendingFocusIndex];
+  row.classList.add('focused');
+  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+document.addEventListener('keydown', (e) => {
+  const panel = document.getElementById('pending-panel');
+  if (!panel || !panel.classList.contains('open')) return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+  const rows = Array.from(document.querySelectorAll('.pending-row'));
+  if (!rows.length) return;
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    _focusPendingByIndex(_pendingFocusIndex < 0 ? 0 : _pendingFocusIndex + 1);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    _focusPendingByIndex(_pendingFocusIndex < 0 ? 0 : _pendingFocusIndex - 1);
+  } else if ((e.key === 'a' || e.key === 'A') && _pendingFocusIndex >= 0) {
+    e.preventDefault();
+    const id = rows[_pendingFocusIndex].id.replace('pending-row-', '');
+    approvePending(parseInt(id));
+  } else if ((e.key === 'r' || e.key === 'R') && _pendingFocusIndex >= 0) {
+    e.preventDefault();
+    const id = rows[_pendingFocusIndex].id.replace('pending-row-', '');
+    rejectPending(parseInt(id));
+  }
+});
+
+function _removePendingRowOptimistically(soundDbId) {
+  const wrap = document.getElementById(`pending-wrap-${soundDbId}`);
+  const statEl = document.getElementById('stat-pending');
+  const currentCount = parseInt(statEl.textContent) || 0;
+  if (currentCount > 0) statEl.textContent = currentCount - 1;
+  document.getElementById('box-pending').classList.toggle('has-pending', currentCount - 1 > 0);
+
+  if (wrap) {
+    wrap.classList.add('removing');
+    setTimeout(() => wrap.remove(), 200);
+  }
+
+  // Move keyboard focus to the next row automatically so you can keep
+  // going without re-clicking.
+  setTimeout(() => {
+    const rows = document.querySelectorAll('.pending-row');
+    if (rows.length && _pendingFocusIndex >= 0) {
+      _focusPendingByIndex(Math.min(_pendingFocusIndex, rows.length - 1));
+    }
+  }, 210);
 }
 
 async function approvePending(soundDbId) {
-  const row = document.getElementById(`pending-row-${soundDbId}`);
-  const buttons = row ? row.querySelectorAll('button') : [];
-  buttons.forEach(b => b.disabled = true);
+  _removePendingRowOptimistically(soundDbId);
   try {
-    await fetch(`/api/sounds/${soundDbId}/approve`, { method: 'POST' });
-    await load();
+    const res = await fetch(`/api/sounds/${soundDbId}/approve`, { method: 'POST' });
+    if (!res.ok) throw new Error('approve failed');
+    // Lightweight background refresh of the approved sounds list and
+    // headline stats only — NOT the full load(), which was re-fetching
+    // the entire page (posts grid, creators panel, everything) on every
+    // single approve click and was the main source of the lag.
+    loadPendingReview();
+    refreshSoundsAndStatsOnly();
   } catch (e) {
-    buttons.forEach(b => b.disabled = false);
+    // Revert: reload the real pending list from the server so the row
+    // comes back if the approve actually failed server-side.
+    loadPendingReview();
   }
 }
 
 async function rejectPending(soundDbId) {
-  const row = document.getElementById(`pending-row-${soundDbId}`);
-  const buttons = row ? row.querySelectorAll('button') : [];
-  buttons.forEach(b => b.disabled = true);
+  _removePendingRowOptimistically(soundDbId);
   try {
-    await fetch(`/api/sounds/${soundDbId}/reject`, { method: 'POST' });
-    await loadPendingReview();
+    const res = await fetch(`/api/sounds/${soundDbId}/reject`, { method: 'POST' });
+    if (!res.ok) throw new Error('reject failed');
   } catch (e) {
-    buttons.forEach(b => b.disabled = false);
+    loadPendingReview();
+  }
+}
+
+async function refreshSoundsAndStatsOnly() {
+  try {
+    const res = await fetch(`/api/songs/${songId}/detail`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const sounds = data.sounds || [];
+    document.getElementById('stat-views').textContent = fmt(data.header_stats?.views || 0);
+    document.getElementById('stat-sounds').textContent = sounds.length;
+    document.getElementById('stat-creators').textContent = data.header_stats?.creator_count || 0;
+    document.getElementById('stat-posts').textContent = data.header_stats?.post_count || 0;
+    renderSoundsPanel(sounds);
+  } catch (e) {
+    // Non-fatal — headline stats will just catch up on next full load().
   }
 }
 
