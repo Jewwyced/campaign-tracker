@@ -1380,47 +1380,18 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id, auto_approve=True)
                 if video_count == 0:
                     new_status = "inactive"
                 else:
-                    # ── Audio fingerprint check (SHADOW MODE) ──────────
-                    # Runs and records a result for every candidate that
-                    # reaches this point (survived both the cheap
-                    # plausibility pre-filter AND the video_count check —
-                    # same "25 plausible candidates, not 500 raw hits"
-                    # principle _could_possibly_qualify already enforces).
-                    # Deliberately does NOT affect new_status below yet:
-                    # this is real production data collection to validate
-                    # confidence thresholds against actual human review
-                    # decisions before ever letting a fingerprint result
-                    # auto-approve or auto-reject anything. Cached per
-                    # sound — a sound's audio never changes, so once
-                    # checked (successfully or not), never re-spend an
-                    # API call on it again.
-                    fp_already_checked = s.get("fingerprint_checked_at") is not None
-                    if not fp_already_checked:
-                        fp_result = _fingerprint.fingerprint_sound(play_url, song_name, song_artist)
-                        with db_conn_factory() as fp_conn:
-                            with fp_conn.cursor() as fp_c:
-                                fp_c.execute("""
-                                    UPDATE sounds
-                                    SET fingerprint_status=%s,
-                                        fingerprint_recording_id=%s,
-                                        fingerprint_title=%s,
-                                        fingerprint_artist=%s,
-                                        fingerprint_confidence=%s,
-                                        fingerprint_checked_at=now()
-                                    WHERE id=%s
-                                """, (
-                                    fp_result.get("status"),
-                                    fp_result.get("recording_id"),
-                                    fp_result.get("title"),
-                                    fp_result.get("artist"),
-                                    fp_result.get("confidence"),
-                                    s["id"],
-                                ))
-                            fp_conn.commit()
-                        _log(f"  sound {s['id']} fingerprint: {fp_result.get('status')} "
-                             f"(recording_id={fp_result.get('recording_id')}, "
-                             f"confidence={fp_result.get('confidence')}, reason={fp_result.get('reason', '')})")
-
+                    # NOTE: audio fingerprinting deliberately does NOT
+                    # happen here anymore. It used to run inline, right in
+                    # this loop — but that meant up to QUALIFY_BATCH_SIZE
+                    # (20) synchronous audio-fetch + ACRCloud calls inside
+                    # one web request, reintroducing exactly the timeout
+                    # risk QUALIFY_BATCH_SIZE was built to prevent for the
+                    # cheaper video_count check. Fingerprinting now happens
+                    # exclusively via the async run_fingerprint_backlog
+                    # worker (see below in this file), triggered on its
+                    # own cron schedule — candidates land here as
+                    # 'unchecked' and get picked up shortly after by that
+                    # worker instead of blocking this request.
                     is_relevant = _classify_sound_match(
                         title, author, song_name, song_artist, video_count,
                         discovered_via=s.get("discovered_via")
