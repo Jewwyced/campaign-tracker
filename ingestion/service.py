@@ -193,54 +193,80 @@ def _is_plausible_candidate(title, author, song_name, song_artist, discovered_vi
     though the underlying signals look similar today. These answer two
     different questions:
       - Discovery asks: "Is this even worth storing?" — a cheap,
-        PERMISSIVE junk filter. A title match alone (even with an
-        unconfirmed/unrelated-looking uploader) or an artist match alone
-        is enough to be worth storing — e.g. "Griddle Remix" by some
-        random uploader is plausible enough to check further, even though
-        we can't yet confirm the uploader has anything to do with the
-        artist. Qualify will do the real, stricter verification later
-        with fresh video_count data.
+        PERMISSIVE junk filter.
       - Qualification asks: "Is this actually the song?" — the real,
-        final verification, and it correctly requires BOTH a title AND
-        artist match together (see _classify_sound_match) — that's where
-        "Griddle Remix" by an unrelated uploader would likely get
-        rejected once actually checked, not here.
-    Keeping these as separate functions (and separately TUNED — this one
-    is intentionally looser) means discovery's net can stay wide while
-    qualification's bar stays strict, without the two silently becoming
-    the same function in disguise.
+        final verification (see _classify_sound_match), correctly
+        stricter than this.
+
+    SOURCE-AWARE, not a single bar for everything: the real question
+    discovery should ask isn't "is this the right song" — it's "how much
+    do I trust the search that produced this candidate."
+      - title_artist: TikTok's OWN search relevance already ranked this
+        as a top result for our exact "{title} {artist}" query. Trust
+        that almost entirely — re-applying our own strict text check on
+        top just throws away real matches with stylized, foreign-
+        language, or generic "original sound" titles that TikTok's
+        search already correctly surfaced but our regex can't confirm.
+      - title_only: still a direct search on the correct title, slightly
+        weaker evidence than title_artist (no artist term to help TikTok
+        disambiguate) — light filtering, not none.
+      - hashtag / challenge: exploratory, engagement-driven feeds with NO
+        relevance guarantee at all — this is exactly how "Way Down We Go"
+        and "La Muchachita" got pulled into a Griddle search. These keep
+        the original, strict independent textual check.
+
+    Audio fingerprinting is now the universal verifier downstream of all
+    of this — that's what makes trusting the stronger sources more here
+    safe: a wrong candidate that gets stored still can't become canonical
+    without either the strict Tier 1 text match or a human explicitly
+    approving it, and now also gets an independent audio check before
+    anyone has to look at it.
     """
     title_norm = _normalize_str(song_name)
-    artist_norm = _normalize_str(song_artist) if song_artist else ""
-    s_title = _normalize_str(title)
-    s_author = _normalize_str(author)
-
     if not title_norm:
         return False
+
+    s_title = _normalize_str(title)
+
+    if discovered_via == "title_artist":
+        # Very high trust — TikTok's own search already matched our exact
+        # query. Keep almost everything; just confirm a real title came
+        # back at all (guards against a malformed/empty API response,
+        # not against the song itself).
+        return bool(s_title)
+
+    s_author = _normalize_str(author)
+    artist_norm = _normalize_str(song_artist) if song_artist else ""
 
     title_exact = (s_title == title_norm)
     title_contains = (title_norm in s_title) and not title_exact
     sig_words = [w for w in title_norm.split() if len(w) > 3]
     title_words_matched = sum(1 for w in sig_words if w in s_title)
-    title_multiword = len(sig_words) >= 2 and title_words_matched >= 2
-    plausible_title = title_exact or title_contains or title_multiword
+    title_multiword_strict = len(sig_words) >= 2 and title_words_matched >= 2
+    title_multiword_light = len(sig_words) >= 1 and title_words_matched >= 1
+    plausible_title_strict = title_exact or title_contains or title_multiword_strict
+    plausible_title_light = title_exact or title_contains or title_multiword_light
 
+    if discovered_via == "title_only":
+        # High trust, light filtering — still a direct search on the
+        # correct title, so a single significant word match (not the
+        # stricter 2-word bar below) or any artist signal is enough.
+        if plausible_title_light:
+            return True
+        if artist_norm and _artist_signal(author, artist_norm):
+            return True
+        return False
+
+    # hashtag / challenge (and any future/unknown source) — low/very-low
+    # trust, exploratory feeds with no search-relevance guarantee. Keep
+    # today's stricter bar: 2+ significant words, or an exact/contains
+    # match, or a confirmed artist signal.
     if not artist_norm:
-        return plausible_title
-
-    # Permissive OR, not qualify's stricter AND: either signal alone is
-    # enough to be worth storing and letting qualify look at properly.
-    if plausible_title:
+        return plausible_title_strict
+    if plausible_title_strict:
         return True
     if _artist_signal(author, artist_norm):
         return True
-    # NOTE: previously also kept generic "original sound" uploads from the
-    # 'title_artist' source as plausible, on the theory that qualify's
-    # Tier 2 might approve them on popularity. Tier 2 has been removed
-    # (see _classify_sound_match) after producing real false positives
-    # twice, so that path no longer leads to approval — no reason to keep
-    # these as plausible here either.
-
     return False
 
 
@@ -1593,6 +1619,70 @@ def run_fingerprint_backlog(db_conn_factory, batch_size=40, time_budget_seconds=
         "mismatched": mismatched,
         "inconclusive": inconclusive,
         "errors": errors,
+    }
+
+
+def run_nightly_discovery(db_conn_factory):
+    """Discovery cron — runs once per night, loops every song attached to
+    an active campaign, and runs discover -> qualify for each, landing
+    results in the pending review queue exactly as if a human had
+    clicked "Find New Sounds" themselves.
+
+    auto_approve IS HARDCODED FALSE, ALWAYS, NOT A PARAMETER. This is
+    the one guarantee that makes running discovery automatically safe:
+    nothing this function does can ever become canonical without a human
+    explicitly approving it in the review queue. This directly matches
+    the design already documented in routes_refresh.py, which explains
+    why the OLD automatic discovery cron was removed (it called an
+    un-capped legacy discovery function AND defaulted auto-approve to
+    on) — this function reuses today's capped, plausibility-filtered
+    discover_song_sounds/qualify_pending_sounds_for_song exactly as they
+    already exist, just triggered on a timer instead of a click.
+
+    Intended schedule: once nightly (e.g. 3am), NOT hourly — re-running
+    full discovery on the same songs repeatedly finds little new each
+    time; once a day is enough to have a fresh pending queue by morning,
+    without paying the discovery cost on a tighter loop for no benefit.
+    """
+    with db_conn_factory() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                SELECT DISTINCT sg.id, sg.name, sg.artist
+                FROM songs sg
+                JOIN campaign_songs cs ON cs.song_id = sg.id
+                JOIN campaigns camp ON camp.id = cs.campaign_id
+                WHERE camp.status = 'In Progress'
+            """)
+            songs = [dict(r) for r in c.fetchall()]
+
+    _log(f"run_nightly_discovery: {len(songs)} active songs")
+
+    results = []
+    for song in songs:
+        try:
+            discover_result = discover_song_sounds(
+                db_conn_factory, song["id"], song["name"], song["artist"] or ""
+            )
+            qualify_result = qualify_pending_sounds_for_song(
+                db_conn_factory, song["id"], auto_approve=False
+            )
+            results.append({
+                "song_id": song["id"],
+                "song_name": song["name"],
+                "discovered": discover_result,
+                "qualified": qualify_result,
+            })
+        except Exception as e:
+            _log(f"run_nightly_discovery: failed on song {song['id']} ('{song['name']}'): {e}")
+            results.append({"song_id": song["id"], "song_name": song["name"], "error": str(e)})
+
+    total_awaiting = sum(r.get("qualified", {}).get("awaiting_review", 0) for r in results)
+    _log(f"run_nightly_discovery: complete — {total_awaiting} total sounds now awaiting review across {len(songs)} songs")
+
+    return {
+        "songs_processed": len(songs),
+        "total_awaiting_review": total_awaiting,
+        "per_song": results,
     }
 
 
