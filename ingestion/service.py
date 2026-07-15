@@ -17,6 +17,7 @@ from datetime import date, datetime, timezone
 from .providers import default_provider as provider
 from .tiklive_provider import TikLiveAPIProvider as _TikLiveProvider
 _tiklive = _TikLiveProvider()
+from . import fingerprint as _fingerprint
 from .parsers import (
     parse_sounds_from_search,
     parse_sound_info,
@@ -54,23 +55,25 @@ ARTIST_SIGNAL_MIN_RATIO = 0.5
 # crash the worker in the process), leaving the song half-approved,
 # half-pending.
 #
-# Set to 5, not a larger "safety margin" number, because that's the actual
-# MVP goal: the top 5 highest-confidence sounds, not "as many as we can
-# squeeze in before timing out." Even 30 sequential provider calls can
-# still blow the worker timeout if the upstream API has a few slow
-# responses (each call has a 5s connect / 10s read timeout with one retry,
-# so a handful of slow calls alone can eat 30+ seconds) — cutting to 5
-# both matches the actual product goal AND gives a much bigger, more
-# reliable safety margin against timeouts than trimming the count alone.
+# Raised from 5 to 20: with each provider call taking up to ~15s worst
+# case (5s connect / 10s read timeout, one retry), 20 sequential calls
+# stays comfortably under a typical 30s+ gunicorn worker timeout while
+# processing 4x as many candidates per click — meaningfully shrinking how
+# many times "Find New Sounds" / requalify has to be clicked to clear a
+# backlog, without touching the actual matching bar at all.
 QUALIFY_BATCH_SIZE = 20
 
 # Max plausible candidates to persist per discovery run. Even after the
 # no-API-call plausibility filter (_could_possibly_qualify), a common
 # title can still leave more "technically eligible" generic uploads than
-# are worth tracking — a song should end up with a handful of real
-# candidates, not dozens sitting in the pending queue. This is the actual
-# fix for "494 pending sounds for one song": discovery should return a
-# small, plausible set, not everything it could possibly find.
+# are worth tracking — but the previous cap of 30 was tuned for "avoid
+# database bloat," not "give a reviewer a real pool to work through."
+#
+# Raised from 30 to 75 to surface more legitimate candidates for review
+# (paired with the QUALIFY_BATCH_SIZE increase above, which now actually
+# runs the real classifier on more of them per call) — still a real cap,
+# not "store everything," so a song with hundreds of technically-plausible
+# hits still gets bounded to the top-scored 75, not every single one.
 MAX_DISCOVERY_CANDIDATES = 75
 
 # Once discovery has found this many plausible candidates, stop searching
@@ -79,6 +82,14 @@ MAX_DISCOVERY_CANDIDATES = 75
 # writes, and downstream qualification work. Deliberately lower than
 # MAX_DISCOVERY_CANDIDATES: this is "enough to stop looking," not "the
 # most we'll ever keep" — the persist-time cap still applies on top.
+#
+# Raised from 15 to 40: at 15, a song often hit the threshold purely off
+# the cheap 'title_artist'/'title_only' searches and never even tried the
+# 'hashtag' source — cheaper, cleaner evidence was left on the table
+# simply because the counter filled up early. Raising this means more of
+# the cheaper, more reliable sources actually get tried before falling
+# back to the noisier 'challenge' crawl, which still only runs as a last
+# resort.
 EARLY_STOP_CANDIDATE_THRESHOLD = 40
 
 
@@ -277,8 +288,21 @@ def _could_possibly_qualify(title, author, song_name, song_artist, discovered_vi
         # to learn it — video_count doesn't change whether a title matches).
         return strong_title_possible
 
+    # Loosened from a strict AND to an OR: this pre-filter's job is only
+    # to decide "is it worth spending an API call to actually look at
+    # this," not "should this be approved" — those are different bars.
+    # The old AND requirement made this exactly as strict as
+    # _classify_sound_match's real approval gate, so anything with just a
+    # title match (unconfirmed uploader) or just an artist match (title
+    # not exact/contained) got bulk-rejected before a human ever saw it —
+    # even though _is_plausible_candidate (discovery's own filter) was
+    # fine with either signal alone. Either signal alone is now enough to
+    # warrant the real check; _classify_sound_match downstream still
+    # requires both together to actually approve anything, so nothing new
+    # can get auto-approved from this change alone — it only means more
+    # real candidates reach the pending queue for a human to judge.
     if _artist_signal(author, artist_norm) or strong_title_possible:
-        return True  # Tier 1 already provable from stored data alone
+        return True
 
     # NOTE: previously kept generic uploads from the 'title_artist' source
     # as "possibly qualifiable" pending a video_count check, since Tier 2
@@ -1249,7 +1273,8 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id, auto_approve=True)
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("""
-                SELECT snd.id, snd.sound_id, snd.title, snd.author, snd.discovered_via
+                SELECT snd.id, snd.sound_id, snd.title, snd.author, snd.discovered_via,
+                       snd.fingerprint_status, snd.fingerprint_checked_at
                 FROM sounds snd
                 WHERE snd.song_id = %s AND snd.status = 'pending'
             """, (song_id,))
@@ -1319,14 +1344,57 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id, auto_approve=True)
                     video_count = stats.get("videoCount") or 0
                     title = music.get("title") or ""
                     author = music.get("authorName") or ""
+                    play_url = music.get("playUrl") or ""
                 else:
                     video_count = raw.get("video_count") or 0
                     title = raw.get("title") or ""
                     author = raw.get("author") or ""
+                    play_url = raw.get("play") or ""
 
                 if video_count == 0:
                     new_status = "inactive"
                 else:
+                    # ── Audio fingerprint check (SHADOW MODE) ──────────
+                    # Runs and records a result for every candidate that
+                    # reaches this point (survived both the cheap
+                    # plausibility pre-filter AND the video_count check —
+                    # same "25 plausible candidates, not 500 raw hits"
+                    # principle _could_possibly_qualify already enforces).
+                    # Deliberately does NOT affect new_status below yet:
+                    # this is real production data collection to validate
+                    # confidence thresholds against actual human review
+                    # decisions before ever letting a fingerprint result
+                    # auto-approve or auto-reject anything. Cached per
+                    # sound — a sound's audio never changes, so once
+                    # checked (successfully or not), never re-spend an
+                    # API call on it again.
+                    fp_already_checked = s.get("fingerprint_checked_at") is not None
+                    if not fp_already_checked:
+                        fp_result = _fingerprint.fingerprint_sound(play_url, song_name, song_artist)
+                        with db_conn_factory() as fp_conn:
+                            with fp_conn.cursor() as fp_c:
+                                fp_c.execute("""
+                                    UPDATE sounds
+                                    SET fingerprint_status=%s,
+                                        fingerprint_recording_id=%s,
+                                        fingerprint_title=%s,
+                                        fingerprint_artist=%s,
+                                        fingerprint_confidence=%s,
+                                        fingerprint_checked_at=now()
+                                    WHERE id=%s
+                                """, (
+                                    fp_result.get("status"),
+                                    fp_result.get("recording_id"),
+                                    fp_result.get("title"),
+                                    fp_result.get("artist"),
+                                    fp_result.get("confidence"),
+                                    s["id"],
+                                ))
+                            fp_conn.commit()
+                        _log(f"  sound {s['id']} fingerprint: {fp_result.get('status')} "
+                             f"(recording_id={fp_result.get('recording_id')}, "
+                             f"confidence={fp_result.get('confidence')}, reason={fp_result.get('reason', '')})")
+
                     is_relevant = _classify_sound_match(
                         title, author, song_name, song_artist, video_count,
                         discovered_via=s.get("discovered_via")
