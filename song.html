@@ -517,22 +517,40 @@ function renderPendingPanel(pending) {
     </div>
   `).join('');
 
-  // Auto-load every preview in parallel, right away, instead of waiting for
-  // a click — by the time you scroll to a row it's usually already loaded.
-  // Fire-and-forget: each one fills in independently as it arrives.
-  pending.forEach(s => loadPreviewInto(s.id));
+  // Auto-load previews, but THROTTLED — not all N at once. Firing dozens
+  // of simultaneous requests at TikLive risks rate limits or just
+  // overwhelming things, which is exactly why some rows were getting
+  // stuck on "Loading preview..." forever with no fallback. This queues
+  // them with a max of 4 in flight at a time, so it's still automatic
+  // (no click required) but doesn't flood the API.
+  _queuePreviewLoads(pending.map(s => s.id));
 
   _pendingFocusIndex = -1;
+}
+
+const _PREVIEW_CONCURRENCY = 4;
+
+function _queuePreviewLoads(soundIds) {
+  let next = 0;
+  function runNext() {
+    if (next >= soundIds.length) return;
+    const id = soundIds[next++];
+    loadPreviewInto(id).finally(runNext);
+  }
+  for (let i = 0; i < _PREVIEW_CONCURRENCY; i++) runNext();
 }
 
 async function loadPreviewInto(soundDbId) {
   const strip = document.getElementById(`preview-strip-${soundDbId}`);
   if (!strip) return;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 12000);
   try {
-    const res = await fetch(`/api/sounds/${soundDbId}/preview_posts`);
+    const res = await fetch(`/api/sounds/${soundDbId}/preview_posts`, { signal: controller.signal });
+    clearTimeout(timeoutId);
     const posts = res.ok ? await res.json() : [];
     if (!posts.length) {
-      strip.innerHTML = '<div class="preview-loading">No videos found for this sound right now.</div>';
+      strip.innerHTML = `<div class="preview-loading">No videos found for this sound right now. <button class="btn-preview" style="margin-left:6px;" onclick="loadPreviewInto(${soundDbId})">Retry</button></div>`;
     } else {
       strip.innerHTML = '<div class="preview-strip">' + posts.map(p => `
         <a class="preview-thumb" href="https://tiktok.com/@${escapeHtml(p.username)}/video/${escapeHtml(p.post_id)}" target="_blank" title="@${escapeHtml(p.username)}">
@@ -542,7 +560,9 @@ async function loadPreviewInto(soundDbId) {
       `).join('') + '</div>';
     }
   } catch (e) {
-    strip.innerHTML = '<div class="preview-loading">Could not load preview videos.</div>';
+    clearTimeout(timeoutId);
+    const reason = e.name === 'AbortError' ? 'Timed out' : 'Could not load';
+    strip.innerHTML = `<div class="preview-loading">${reason} — <button class="btn-preview" style="margin-left:6px;" onclick="loadPreviewInto(${soundDbId})">Retry</button></div>`;
   }
 }
 
