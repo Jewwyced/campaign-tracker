@@ -143,7 +143,13 @@ class TikLiveAPIProvider:
                 "count": 35,
                 "cursor": cursor,
                 "publish_time": 0,   # All time for discovery — gets more sounds
-                "sort_by": 2,        # Newest first
+                "sort_by": 1,        # Like count — surfaces high-engagement videos,
+                                     # far more likely to be using a real, widely-used
+                                     # sound than just whatever was posted most recently.
+                                     # (TikLive sort_by values: 0=relevance, 1=like
+                                     # count, 2=date posted — this was previously 2,
+                                     # which explains why discovery kept surfacing only
+                                     # low-volume, very-recent posts.)
             })
 
             if not data:
