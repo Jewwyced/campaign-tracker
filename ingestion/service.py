@@ -277,7 +277,7 @@ def _could_possibly_qualify(title, author, song_name, song_artist, discovered_vi
         # to learn it — video_count doesn't change whether a title matches).
         return strong_title_possible
 
-    if _artist_signal(author, artist_norm) and strong_title_possible:
+    if _artist_signal(author, artist_norm) or strong_title_possible:
         return True  # Tier 1 already provable from stored data alone
 
     # NOTE: previously kept generic uploads from the 'title_artist' source
