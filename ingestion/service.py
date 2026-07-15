@@ -1483,6 +1483,119 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id, auto_approve=True)
     }
 
 
+def run_fingerprint_backlog(db_conn_factory, batch_size=40, time_budget_seconds=25):
+    """The fingerprint worker — drains the backlog of pending sounds that
+    haven't been audio-verified yet, across ALL songs, not just one.
+
+    SAFE TO RUN AUTOMATICALLY ON A SCHEDULE. Unlike the discover/qualify
+    crons that were deliberately removed from routes_refresh.py (see that
+    file's docstring), this function never touches sounds.status. It only
+    writes to the fingerprint_* columns — pure verification data layered
+    on top of candidates a human already explicitly created via "Find New
+    Sounds". It cannot silently expand, approve, or change the canonical
+    sound set, so it doesn't reintroduce the "why did these appear? the
+    cron decided" problem this architecture exists to prevent.
+
+    Time-boxed rather than purely count-boxed (unlike QUALIFY_BATCH_SIZE)
+    because fingerprint latency is unpredictable — audio fetch + ACRCloud
+    round trip per candidate, not a single fast metadata call. Stops at
+    whichever limit — batch_size or time_budget_seconds — comes first, to
+    stay well under a gunicorn worker timeout.
+
+    NOTE: play_url is not stored anywhere (it's only ever fetched
+    transiently, mid-request, during qualify). This worker runs
+    independently and must re-fetch it via the provider before it can
+    fingerprint anything — one extra provider call per candidate, on top
+    of the ACRCloud call itself.
+    """
+    import time as _time
+    start = _time.monotonic()
+
+    with db_conn_factory() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                SELECT snd.id, snd.sound_id, snd.title, snd.author,
+                       sg.name AS song_name, sg.artist AS song_artist
+                FROM sounds snd
+                JOIN songs sg ON sg.id = snd.song_id
+                WHERE snd.status = 'pending'
+                  AND snd.fingerprint_status = 'unchecked'
+                  AND snd.song_id IN (
+                      SELECT cs.song_id FROM campaign_songs cs
+                      JOIN campaigns camp ON camp.id = cs.campaign_id
+                      WHERE camp.status = 'In Progress'
+                  )
+                ORDER BY snd.id ASC
+                LIMIT %s
+            """, (batch_size,))
+            batch = [dict(r) for r in c.fetchall()]
+
+    _log(f"run_fingerprint_backlog: {len(batch)} candidates pulled (batch_size={batch_size})")
+
+    checked = matched = mismatched = inconclusive = errors = 0
+
+    for s in batch:
+        if _time.monotonic() - start > time_budget_seconds:
+            _log(f"run_fingerprint_backlog: time budget ({time_budget_seconds}s) reached, "
+                 f"stopping early after {checked}/{len(batch)}")
+            break
+
+        try:
+            info = provider.get_sound_info(s["sound_id"])
+            parsed = parse_sound_info(info)
+            play_url = (parsed or {}).get("play_url")
+
+            fp_result = _fingerprint.fingerprint_sound(play_url, s["song_name"], s["song_artist"])
+
+            with db_conn_factory() as conn:
+                with conn.cursor() as c:
+                    c.execute("""
+                        UPDATE sounds
+                        SET fingerprint_status=%s,
+                            fingerprint_recording_id=%s,
+                            fingerprint_title=%s,
+                            fingerprint_artist=%s,
+                            fingerprint_confidence=%s,
+                            fingerprint_checked_at=now()
+                        WHERE id=%s
+                    """, (
+                        fp_result.get("status"),
+                        fp_result.get("recording_id"),
+                        fp_result.get("title"),
+                        fp_result.get("artist"),
+                        fp_result.get("confidence"),
+                        s["id"],
+                    ))
+                conn.commit()
+
+            checked += 1
+            status = fp_result.get("status")
+            if status == "matched":
+                matched += 1
+            elif status == "mismatched":
+                mismatched += 1
+            elif status == "inconclusive":
+                inconclusive += 1
+            else:
+                errors += 1
+
+        except Exception as e:
+            _log(f"run_fingerprint_backlog: failed on sound {s['id']}: {e}")
+            errors += 1
+
+    _log(f"run_fingerprint_backlog: {checked} checked — {matched} matched, "
+         f"{mismatched} mismatched, {inconclusive} inconclusive, {errors} errors")
+
+    return {
+        "pulled": len(batch),
+        "checked": checked,
+        "matched": matched,
+        "mismatched": mismatched,
+        "inconclusive": inconclusive,
+        "errors": errors,
+    }
+
+
 def ingest_approved_sounds_for_song(db_conn_factory, song_id, max_results=30):
     """Fetch posts/videos for every approved sound belonging to one song, right now.
     Unlike the global monitor cron (which only takes the top 25 stale sounds across

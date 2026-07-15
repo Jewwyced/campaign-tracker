@@ -55,6 +55,12 @@ refresh_bp = Blueprint("refresh", __name__)
 
 LOCK_TIMEOUT_MINUTES = 30
 
+# NOTE: ingestion_lock is currently a single global lock (row id=1). All
+# background jobs (refresh, discovery, fingerprint worker) are
+# serialized. This is intentional for now to prevent concurrent writes
+# and API contention. When throughput becomes a bottleneck, migrate to
+# per-job or per-song locks.
+
 
 def _acquire_lock(lock_name='refresh'):
     with db() as conn:
@@ -204,6 +210,40 @@ def ingest_only_song(song_id):
         return jsonify({"ok": True, "song_id": song_id, **result})
     except Exception as e:
         logging.exception(f"Ingest-only failed for song {song_id}:")
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        _release_lock()
+
+
+@refresh_bp.route("/api/refresh/fingerprint", methods=["POST"])
+def refresh_fingerprint():
+    """The fingerprint backlog worker — SAFE to run automatically on a
+    schedule, unlike the removed /api/refresh/discover and
+    /api/refresh/qualify crons described at the top of this file.
+
+    Why this one's different: it never touches sounds.status. It only
+    writes audio-verification data (fingerprint_status, matched
+    title/artist/confidence) onto sounds a human already explicitly put
+    into the pending queue via "Find New Sounds". It can't silently
+    expand, approve, or reject anything — purely annotation, not a
+    decision. So running it hourly (or more often — it's cheap, roughly
+    $0.003/check) doesn't reintroduce the "why did these appear? the cron
+    decided" problem the rest of this file's architecture exists to
+    prevent.
+
+    Suggested schedule: every 10-15 minutes (more frequent than the
+    hourly monitor scan, since draining the fingerprint backlog quickly
+    is what makes "Find New Sounds" feel responsive even though
+    fingerprinting itself runs out-of-band).
+    """
+    if not _acquire_lock('fingerprint_backlog'):
+        return jsonify({"ok": False, "reason": "fingerprint backlog already running"}), 429
+
+    try:
+        result = ingestion_service.run_fingerprint_backlog(db)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        logging.exception("Fingerprint backlog run failed:")
         return jsonify({"ok": False, "error": str(e)}), 500
     finally:
         _release_lock()
