@@ -276,37 +276,59 @@ def _could_possibly_qualify(title, author, song_name, song_artist, discovered_vi
     would reject this candidate regardless of video_count — used to bulk-
     reject candidates before spending a provider call on them.
 
-    Why this exists: discovery (especially the challenge/hashtag crawl)
-    pulls in a large volume of candidates with zero textual relation to
-    the song at all — not just generic "original sound" uploads, but
-    complete, real songs by unrelated artists (e.g. Griddle's crawl
-    surfacing "Way down We Go" by KELAO, "La Muchachita" by Anthony
-    Santos). We already know enough from discovery-time title/author to
-    be certain these can never pass — spending a network call and a
-    qualify "slot" just to prove what's already obvious from the text is
-    wasted work, and it's why qualify was churning through 5-at-a-time
-    for hundreds of rounds on something that's actually free to filter.
+    SOURCE-AWARE, matching _is_plausible_candidate's logic exactly. This
+    function used to apply one universal strict-ish bar regardless of
+    where a candidate came from — which quietly defeated the whole point
+    of making discovery source-aware: discovery would happily store 75
+    generic "original sound" uploads from a highly-trusted title_artist
+    search, only for THIS function to immediately bulk-reject most of
+    them for "zero textual relation" before they ever got a video_count
+    check or a fingerprint. Two filters, only one had been updated — this
+    fixes that inconsistency.
 
-    The only thing genuinely gated behind an API call is video_count,
-    which only matters for the narrow Tier 2 path (generic upload +
-    discovered_via == 'title_artist' + popularity). Everything else this
-    function checks mirrors _classify_sound_match's title/artist logic
-    exactly, just without the video_count-dependent branch.
+      - title_artist: TikTok's own search relevance already matched our
+        exact query. Trust it — don't bulk-reject on text grounds at all;
+        let it through to get a real video_count check and, eventually,
+        an actual audio fingerprint, which is the real verifier now.
+      - title_only: light filtering, same single-significant-word bar as
+        discovery's version.
+      - hashtag / challenge: keep the existing stricter OR check (title
+        match alone or artist match alone) — these sources still have no
+        relevance guarantee and are where real unrelated songs get pulled
+        in (e.g. "Way Down We Go", "La Muchachita").
     """
     title_norm = _normalize_str(song_name)
-    artist_norm = _normalize_str(song_artist) if song_artist else ""
     s_title = _normalize_str(title)
-    s_author = _normalize_str(author)
 
     if not title_norm:
         return False
+
+    if discovered_via == "title_artist":
+        # Very high trust — mirrors _is_plausible_candidate: don't
+        # re-litigate this with a text check, just confirm a real title
+        # came back at all.
+        return bool(s_title)
+
+    artist_norm = _normalize_str(song_artist) if song_artist else ""
+    s_author = _normalize_str(author)
 
     title_exact = (s_title == title_norm)
     title_contains = (title_norm in s_title) and not title_exact
     sig_words = [w for w in title_norm.split() if len(w) > 3]
     title_words_matched = sum(1 for w in sig_words if w in s_title)
-    title_multiword = len(sig_words) >= 2 and title_words_matched >= 2
-    strong_title_possible = title_exact or title_contains or title_multiword
+    title_multiword_strict = len(sig_words) >= 2 and title_words_matched >= 2
+    title_multiword_light = len(sig_words) >= 1 and title_words_matched >= 1
+    strong_title_possible = title_exact or title_contains or title_multiword_strict
+    light_title_possible = title_exact or title_contains or title_multiword_light
+
+    if discovered_via == "title_only":
+        # High trust, light filtering — same bar as
+        # _is_plausible_candidate's title_only branch.
+        if light_title_possible:
+            return True
+        if artist_norm and _artist_signal(author, artist_norm):
+            return True
+        return False
 
     if not artist_norm:
         # No artist on file — title match alone would be the deciding
@@ -314,28 +336,15 @@ def _could_possibly_qualify(title, author, song_name, song_artist, discovered_vi
         # to learn it — video_count doesn't change whether a title matches).
         return strong_title_possible
 
-    # Loosened from a strict AND to an OR: this pre-filter's job is only
-    # to decide "is it worth spending an API call to actually look at
-    # this," not "should this be approved" — those are different bars.
-    # The old AND requirement made this exactly as strict as
-    # _classify_sound_match's real approval gate, so anything with just a
-    # title match (unconfirmed uploader) or just an artist match (title
-    # not exact/contained) got bulk-rejected before a human ever saw it —
-    # even though _is_plausible_candidate (discovery's own filter) was
-    # fine with either signal alone. Either signal alone is now enough to
-    # warrant the real check; _classify_sound_match downstream still
-    # requires both together to actually approve anything, so nothing new
-    # can get auto-approved from this change alone — it only means more
-    # real candidates reach the pending queue for a human to judge.
+    # hashtag / challenge (and any future/unknown source) — low/very-low
+    # trust. Loosened from a strict AND to an OR previously: either
+    # signal alone (title match, or artist match) is enough to warrant
+    # the real check; _classify_sound_match downstream still requires
+    # both together to actually approve anything, so nothing new can get
+    # auto-approved from this — it only means more real candidates reach
+    # the pending queue (and now, fingerprinting) for a proper look.
     if _artist_signal(author, artist_norm) or strong_title_possible:
         return True
-
-    # NOTE: previously kept generic uploads from the 'title_artist' source
-    # as "possibly qualifiable" pending a video_count check, since Tier 2
-    # might have approved them. Tier 2 has been removed (see
-    # _classify_sound_match) — nothing left downstream can approve a
-    # generic upload with no artist signal, so there's no reason to spend
-    # an API call finding that out. Bulk-reject it here for free instead.
 
     return False
 
