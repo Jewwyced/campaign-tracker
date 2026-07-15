@@ -77,6 +77,10 @@ def parse_sound_info(raw_music_info_response):
             "title": raw_music_info_response.get("title"),
             "author": raw_music_info_response.get("author"),
             "video_count": raw_music_info_response.get("video_count"),
+            # Direct playable audio URL for the sound itself, if TikLive
+            # returned one. Previously discarded here — this is the field
+            # audio fingerprinting needs to actually fetch the sound.
+            "play_url": raw_music_info_response.get("play"),
         }
     
     # TikAPI nested format
@@ -87,6 +91,7 @@ def parse_sound_info(raw_music_info_response):
         "title": music.get("title"),
         "author": music.get("authorName"),
         "video_count": stats.get("videoCount"),
+        "play_url": music.get("playUrl"),
     }
 
 
