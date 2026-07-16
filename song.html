@@ -710,10 +710,14 @@ async function findNewSounds() {
     const data = await res.json();
     if (data.ok) {
       const found = (data.qualify && data.qualify.awaiting_review) || 0;
-      btn.textContent = found > 0 ? `✓ Found ${found} new` : '✓ Nothing new';
       await loadPendingReview();
       if (found > 0 && !document.getElementById('pending-panel').classList.contains('open')) {
         togglePanel('pending-panel');
+      }
+      if (found > 0) {
+        await autoFingerprintUntilDone(found);
+      } else {
+        btn.textContent = '✓ Nothing new';
       }
     } else {
       btn.textContent = '🔍 Find New Sounds';
@@ -725,6 +729,37 @@ async function findNewSounds() {
     btn.textContent = '🔍 Find New Sounds';
     btn.disabled = false;
   }, 2500);
+}
+
+async function autoFingerprintUntilDone(totalFound) {
+  // Runs right after discovery, automatically, so fingerprinting happens
+  // "behind the scenes" instead of requiring a second manual click. Each
+  // call only gets through ~6-9 candidates (real audio fetch + ACRCloud
+  // round trip per one, a few seconds each) before its own time budget
+  // runs out — so this loops, calling it repeatedly and showing real
+  // progress, until nothing's left unchecked for this song or a safety
+  // cap is hit (so a stuck/slow run can't loop forever).
+  const btn = document.getElementById('find-new-btn');
+  const MAX_LOOPS = 15;
+  let totalChecked = 0;
+
+  for (let i = 0; i < MAX_LOOPS; i++) {
+    btn.textContent = `Verifying audio... ${totalChecked}/${totalFound}`;
+    let data;
+    try {
+      const res = await fetch(`/api/refresh/fingerprint?song_id=${songId}`, { method: 'POST' });
+      data = await res.json();
+    } catch (e) {
+      break;
+    }
+    if (!data.ok || data.checked === 0) break;
+    totalChecked += data.checked;
+    await loadPendingReview();
+    if (data.pulled < 40) break; // fewer than a full batch left means the queue for this song is drained
+  }
+
+  btn.textContent = `✓ Found ${totalFound} — ${totalChecked} verified`;
+  await loadPendingReview();
 }
 
 async function refreshSong() {
