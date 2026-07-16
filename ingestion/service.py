@@ -1489,18 +1489,30 @@ def qualify_pending_sounds_for_song(db_conn_factory, song_id, auto_approve=True)
     }
 
 
-def run_fingerprint_backlog(db_conn_factory, batch_size=40, time_budget_seconds=25):
+def run_fingerprint_backlog(db_conn_factory, batch_size=40, time_budget_seconds=25, song_id=None):
     """The fingerprint worker — drains the backlog of pending sounds that
-    haven't been audio-verified yet, across ALL songs, not just one.
+    haven't been audio-verified yet.
 
-    SAFE TO RUN AUTOMATICALLY ON A SCHEDULE. Unlike the discover/qualify
-    crons that were deliberately removed from routes_refresh.py (see that
-    file's docstring), this function never touches sounds.status. It only
-    writes to the fingerprint_* columns — pure verification data layered
-    on top of candidates a human already explicitly created via "Find New
-    Sounds". It cannot silently expand, approve, or change the canonical
-    sound set, so it doesn't reintroduce the "why did these appear? the
-    cron decided" problem this architecture exists to prevent.
+    By default (song_id=None) this pulls from the GLOBAL queue, oldest
+    candidate first across every song — that's what the cron uses. This
+    caused real confusion once discovery started finding way more
+    candidates: clicking "Find New Sounds" on one song, then running this
+    worker, would often process a COMPLETELY DIFFERENT, older song's
+    leftover backlog instead, since the queue is pure FIFO by sound id,
+    not "whichever song you just touched." Passing song_id scopes this
+    run to just that one song's pending candidates, so you can actually
+    verify what you just discovered on demand instead of guessing whether
+    the global queue happened to reach it yet.
+
+    SAFE TO RUN AUTOMATICALLY ON A SCHEDULE (the song_id=None case). Unlike
+    the discover/qualify crons that were deliberately removed from
+    routes_refresh.py (see that file's docstring), this function never
+    touches sounds.status. It only writes to the fingerprint_* columns —
+    pure verification data layered on top of candidates a human already
+    explicitly created via "Find New Sounds". It cannot silently expand,
+    approve, or change the canonical sound set, so it doesn't reintroduce
+    the "why did these appear? the cron decided" problem this
+    architecture exists to prevent.
 
     Time-boxed rather than purely count-boxed (unlike QUALIFY_BATCH_SIZE)
     because fingerprint latency is unpredictable — audio fetch + ACRCloud
@@ -1517,15 +1529,19 @@ def run_fingerprint_backlog(db_conn_factory, batch_size=40, time_budget_seconds=
     import time as _time
     start = _time.monotonic()
 
+    song_filter_sql = "AND snd.song_id = %s" if song_id is not None else ""
+    query_params = ([song_id] if song_id is not None else []) + [batch_size]
+
     with db_conn_factory() as conn:
         with conn.cursor() as c:
-            c.execute("""
+            c.execute(f"""
                 SELECT snd.id, snd.sound_id, snd.title, snd.author,
                        sg.name AS song_name, sg.artist AS song_artist
                 FROM sounds snd
                 JOIN songs sg ON sg.id = snd.song_id
                 WHERE snd.status = 'pending'
                   AND snd.fingerprint_status = 'unchecked'
+                  {song_filter_sql}
                   AND snd.song_id IN (
                       SELECT cs.song_id FROM campaign_songs cs
                       JOIN campaigns camp ON camp.id = cs.campaign_id
@@ -1533,7 +1549,7 @@ def run_fingerprint_backlog(db_conn_factory, batch_size=40, time_budget_seconds=
                   )
                 ORDER BY snd.id ASC
                 LIMIT %s
-            """, (batch_size,))
+            """, query_params)
             batch = [dict(r) for r in c.fetchall()]
 
     _log(f"run_fingerprint_backlog: {len(batch)} candidates pulled (batch_size={batch_size})")

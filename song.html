@@ -232,6 +232,7 @@
     </div>
     <div class="header-actions">
       <button id="find-new-btn" class="btn-secondary" onclick="findNewSounds()">🔍 Find New Sounds</button>
+      <button id="fingerprint-btn" class="btn-secondary" onclick="fingerprintPending()">🎵 Fingerprint Pending</button>
       <button id="refresh-btn" class="btn-secondary" onclick="refreshSong()">↻ Refresh</button>
     </div>
   </div>
@@ -675,6 +676,29 @@ async function refreshSoundsAndStatsOnly() {
   } catch (e) {
     // Non-fatal — headline stats will just catch up on next full load().
   }
+}
+
+async function fingerprintPending() {
+  const btn = document.getElementById('fingerprint-btn');
+  btn.textContent = 'Fingerprinting...';
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/refresh/fingerprint?song_id=${songId}`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      btn.textContent = `✓ Checked ${data.checked}`;
+      await loadPendingReview();
+    } else {
+      btn.textContent = data.reason === 'fingerprint backlog already running'
+        ? '⏳ Already running...' : '🎵 Fingerprint Pending';
+    }
+  } catch (e) {
+    btn.textContent = '🎵 Fingerprint Pending';
+  }
+  setTimeout(function() {
+    btn.textContent = '🎵 Fingerprint Pending';
+    btn.disabled = false;
+  }, 2500);
 }
 
 async function findNewSounds() {

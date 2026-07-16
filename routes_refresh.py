@@ -44,7 +44,7 @@ safely disabled.
 """
 
 import logging
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from ingestion import api as ingestion
 from ingestion import service as ingestion_service
 from ingestion.providers import default_provider as _provider
@@ -231,19 +231,60 @@ def refresh_fingerprint():
     decided" problem the rest of this file's architecture exists to
     prevent.
 
-    Suggested schedule: every 10-15 minutes (more frequent than the
-    hourly monitor scan, since draining the fingerprint backlog quickly
-    is what makes "Find New Sounds" feel responsive even though
-    fingerprinting itself runs out-of-band).
+    Optional ?song_id=<id> scopes this run to just that song, instead of
+    the default global FIFO queue — see run_fingerprint_backlog's
+    docstring for why that matters: without this, running the worker
+    right after "Find New Sounds" on one song often ends up processing a
+    completely different, older song's backlog instead.
+
+    Suggested schedule (no song_id — the global drain): every 10-15
+    minutes, more frequent than the hourly monitor scan, since draining
+    the fingerprint backlog quickly is what makes "Find New Sounds" feel
+    responsive even though fingerprinting itself runs out-of-band.
     """
-    if not _acquire_lock('fingerprint_backlog'):
+    song_id = request.args.get('song_id', type=int)
+    lock_name = f'fingerprint_backlog_song_{song_id}' if song_id else 'fingerprint_backlog'
+    if not _acquire_lock(lock_name):
         return jsonify({"ok": False, "reason": "fingerprint backlog already running"}), 429
 
     try:
-        result = ingestion_service.run_fingerprint_backlog(db)
+        result = ingestion_service.run_fingerprint_backlog(db, song_id=song_id)
         return jsonify({"ok": True, **result})
     except Exception as e:
         logging.exception("Fingerprint backlog run failed:")
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        _release_lock()
+
+
+@refresh_bp.route("/api/refresh/discover_nightly", methods=["POST"])
+def refresh_discover_nightly():
+    """Discovery cron — reinstates automatic discovery, DELIBERATELY, with
+    the one guarantee that makes it safe: auto_approve is hardcoded False
+    inside ingestion_service.run_nightly_discovery and is NOT a parameter
+    here or anywhere in that call chain. Nothing this route touches can
+    become canonical without a human explicitly approving it in the
+    pending review queue — same guarantee "Find New Sounds" already
+    provides, just on a timer instead of a click.
+
+    This is NOT the same as the old /api/refresh/discover this file's
+    docstring describes removing. That one called an un-capped legacy
+    discovery function with auto-approve defaulted on. This one reuses
+    today's capped, plausibility-filtered discover_song_sounds /
+    qualify_pending_sounds_for_song exactly as they already exist for
+    manual use.
+
+    Suggested schedule: once nightly (e.g. 3am) — see
+    run_nightly_discovery's docstring for why not more often.
+    """
+    if not _acquire_lock('discover_nightly'):
+        return jsonify({"ok": False, "reason": "discovery already running"}), 429
+
+    try:
+        result = ingestion_service.run_nightly_discovery(db)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        logging.exception("Nightly discovery run failed:")
         return jsonify({"ok": False, "error": str(e)}), 500
     finally:
         _release_lock()
