@@ -105,13 +105,56 @@ def _fetch_audio_bytes(play_url):
         return None
 
 
+import unicodedata
+
+
+def _fix_mojibake(s):
+    """Repairs UTF-8 text that got mis-decoded as Latin-1 somewhere upstream
+    (in ACRCloud's own catalog data, not our code — confirmed by testing:
+    the raw bytes we send/receive are correctly UTF-8 throughout our own
+    pipeline). The telltale pattern: a single accented character like 'ë'
+    (UTF-8 bytes 0xC3 0xAB) gets shown as two garbled characters, 'Ã«',
+    because something read those two UTF-8 bytes as two separate Latin-1
+    characters instead of one correctly-decoded one.
+
+    This caused a REAL bug: "Griddlë" (Yeat's actual, correctly stylized
+    song title) came back from ACRCloud as "GriddlÃ«", which then failed
+    _names_roughly_match against our stored "Griddle" — a genuine match
+    got wrongly recorded as a mismatch, purely because of this encoding
+    corruption, not because the audio was actually wrong.
+
+    Safe re-encode-as-Latin-1-then-decode-as-UTF-8 round-trip: if the
+    text was never actually mis-decoded, this either raises (caught,
+    original returned unchanged) or produces nonsense we don't use since
+    we only keep the repaired version when it round-trips cleanly.
+    """
+    if not s:
+        return s
+    try:
+        repaired = s.encode('latin-1').decode('utf-8')
+        return repaired
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        return s
+
+
 def _names_roughly_match(a, b):
-    """Loose, case/whitespace-insensitive comparison — used only to decide
-    whether ACRCloud's answer agrees with what we expected, not as a
-    matching algorithm in its own right."""
+    """Loose, case/whitespace/accent-insensitive comparison — used only to
+    decide whether ACRCloud's answer agrees with what we expected, not as
+    a matching algorithm in its own right.
+
+    Accent-folding (via NFKD + stripping combining marks) matters here
+    independently of _fix_mojibake above: even after repairing a
+    corrupted "GriddlÃ«" back to the correctly-stylized "Griddlë", that
+    still wouldn't match our own stored song name "Griddle" without this
+    — ë and e are genuinely different characters, and a real match was
+    being lost on that gap alone even with the encoding otherwise fixed.
+    """
     if not a or not b:
         return False
-    norm = lambda s: "".join(ch.lower() for ch in s if ch.isalnum())
+    def norm(s):
+        folded = unicodedata.normalize('NFKD', s)
+        folded = ''.join(ch for ch in folded if not unicodedata.combining(ch))
+        return ''.join(ch.lower() for ch in folded if ch.isalnum())
     a, b = norm(a), norm(b)
     return a == b or a in b or b in a
 
@@ -139,8 +182,8 @@ def fingerprint_sound(play_url, expected_song_name, expected_song_artist):
         return {"status": "inconclusive", "reason": "empty result"}
 
     top = musics[0]
-    title = top.get("title", "")
-    artists = ", ".join(a.get("name", "") for a in top.get("artists", []))
+    title = _fix_mojibake(top.get("title", ""))
+    artists = _fix_mojibake(", ".join(a.get("name", "") for a in top.get("artists", [])))
     acrid = top.get("acrid", "")
     score = top.get("score", 0)
 
