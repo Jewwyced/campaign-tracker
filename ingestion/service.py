@@ -693,12 +693,22 @@ def discover_sounds_from_videos(query, publish_time=7):
 
 
 def create_sound(db_conn_factory, song_id, sound):
-    """Persist one discovered sound. Returns new db id, or None if already existed."""
+    """Persist one discovered sound. Returns new db id, or None if already existed.
+
+    DUAL-WRITE (state machine migration, in progress — see
+    HANDOFF_state_machine_migration.md): writes the new `state` column
+    alongside the existing `status` column. Both are kept in sync during
+    the transition so the current UI (which reads `status`) keeps working
+    unmodified while the new state-based pipeline gets built and proven
+    in parallel. Do not remove the `status` write until the new
+    endpoints are confirmed working and status/fingerprint_status are
+    formally retired (migration step 6).
+    """
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("""
-                INSERT INTO sounds (song_id, sound_id, title, author, status, discovered_via)
-                VALUES (%s,%s,%s,%s,'pending',%s)
+                INSERT INTO sounds (song_id, sound_id, title, author, status, state, discovered_via)
+                VALUES (%s,%s,%s,%s,'pending','discovered',%s)
                 ON CONFLICT (song_id, sound_id) DO NOTHING
                 RETURNING id
             """, (song_id, sound["sound_id"], sound["title"], sound["author"], sound.get("discovered_via")))
@@ -717,12 +727,18 @@ def get_or_create_sound(db_conn_factory, song_id, sound):
     the same sound_id keeps the original value — this is a historical
     record of how we first found it, not something that should shift
     around on every rediscovery.
+
+    DUAL-WRITE (state machine migration, in progress — see
+    HANDOFF_state_machine_migration.md): writes `state='discovered'`
+    alongside `status='pending'` on initial insert only — an existing
+    sound's `state` is NOT touched on conflict, same as `status` isn't,
+    since it may have already progressed further in the new pipeline.
     """
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("""
-                INSERT INTO sounds (song_id, sound_id, title, author, status, discovered_via)
-                VALUES (%s,%s,%s,%s,'pending',%s)
+                INSERT INTO sounds (song_id, sound_id, title, author, status, state, discovered_via)
+                VALUES (%s,%s,%s,%s,'pending','discovered',%s)
                 ON CONFLICT (song_id, sound_id) DO UPDATE SET
                     title=EXCLUDED.title,
                     author=EXCLUDED.author,
