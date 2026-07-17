@@ -1634,6 +1634,151 @@ def run_fingerprint_backlog(db_conn_factory, batch_size=40, time_budget_seconds=
     }
 
 
+def _compute_recommendation(fingerprint_status, fingerprint_confidence):
+    """Turns the raw fingerprint result into a clean, human-facing
+    recommendation — 'approve' / 'reject' / 'review' — instead of making
+    a reviewer interpret internal fingerprint_status values themselves.
+    This is intentionally simple right now (a direct mapping); it's the
+    natural place to fold in additional signals (text match strength,
+    video count) later without changing anything that reads
+    `recommendation` downstream.
+    """
+    if fingerprint_status == "matched":
+        return "approve"
+    if fingerprint_status == "mismatched":
+        return "reject"
+    return "review"  # inconclusive or error — no confident automatic answer
+
+
+def process_sound_pipeline(db_conn_factory, batch_size=40, time_budget_seconds=25, song_id=None):
+    """THE state machine worker (state machine migration, step 4 — see
+    HANDOFF_state_machine_migration.md). One transition, not two:
+
+        DISCOVERED -> FINGERPRINTING -> AWAITING_REVIEW
+
+    There is no separate VERIFIED state. Fingerprinting IS the
+    verification — the moment the audio check comes back, we already have
+    everything needed (title, artist, confidence, recommendation) to land
+    the sound in the review queue. "Verified" would have been a lifecycle
+    stage with nothing left to do in it — those are attributes of the
+    sound (fingerprint_status, fingerprint_confidence, recommendation),
+    not a distinct place in its journey. Splitting it into two states and
+    two query passes was one state too many.
+
+    song_id=None means "process everything, across every active-campaign
+    song" — this is the one function every caller uses, the same way,
+    with no duplicate logic:
+        - manual button on a song page  -> song_id=<that song>
+        - the eventual single cron      -> song_id=None
+        - a CLI / test script           -> either, same function
+
+    CURRENT SAFETY CAVEAT, not a limitation of the function itself: right
+    now every sound gets BOTH status='pending' (old system) AND
+    state='discovered' (new system) from the dual-write in create_sound/
+    get_or_create_sound. Calling this with song_id=None today would
+    re-fingerprint (and re-pay for) candidates the OLD run_fingerprint_
+    backlog worker has already checked, since both draw from largely the
+    same underlying rows during the migration's transition period. The
+    route calling this currently requires song_id for that reason alone
+    — once the old worker/qualify endpoints are retired (migration step
+    6), that restriction goes away and this runs globally on a cron,
+    exactly as designed.
+    """
+    import time as _time
+    start = _time.monotonic()
+
+    song_filter_sql = "AND snd.song_id = %s" if song_id is not None else ""
+    query_params = ([song_id] if song_id is not None else []) + [batch_size]
+
+    with db_conn_factory() as conn:
+        with conn.cursor() as c:
+            c.execute(f"""
+                SELECT snd.id, snd.sound_id, snd.title, snd.author,
+                       sg.name AS song_name, sg.artist AS song_artist
+                FROM sounds snd
+                JOIN songs sg ON sg.id = snd.song_id
+                WHERE snd.state = 'discovered'
+                  {song_filter_sql}
+                ORDER BY snd.id ASC
+                LIMIT %s
+            """, query_params)
+            discovered_batch = [dict(r) for r in c.fetchall()]
+
+    _log(f"process_sound_pipeline: {len(discovered_batch)} DISCOVERED candidates pulled")
+
+    fingerprinted = approved_rec = rejected_rec = review_rec = errors = 0
+
+    for s in discovered_batch:
+        if _time.monotonic() - start > time_budget_seconds:
+            _log(f"process_sound_pipeline: time budget reached, "
+                 f"stopping after {fingerprinted}/{len(discovered_batch)}")
+            break
+        try:
+            with db_conn_factory() as conn:
+                with conn.cursor() as c:
+                    c.execute("UPDATE sounds SET state='fingerprinting' WHERE id=%s", (s["id"],))
+                conn.commit()
+
+            info = provider.get_sound_info(s["sound_id"])
+            parsed = parse_sound_info(info)
+            play_url = (parsed or {}).get("play_url")
+
+            fp_result = _fingerprint.fingerprint_sound(play_url, s["song_name"], s["song_artist"])
+            recommendation = _compute_recommendation(fp_result.get("status"), fp_result.get("confidence"))
+
+            # One write, straight to the final pre-decision state — no
+            # intermediate VERIFIED row, no second query pass to find it
+            # again a moment later.
+            with db_conn_factory() as conn:
+                with conn.cursor() as c:
+                    c.execute("""
+                        UPDATE sounds
+                        SET fingerprint_status=%s,
+                            fingerprint_recording_id=%s,
+                            fingerprint_title=%s,
+                            fingerprint_artist=%s,
+                            fingerprint_confidence=%s,
+                            fingerprint_checked_at=now(),
+                            recommendation=%s,
+                            state='awaiting_review'
+                        WHERE id=%s
+                    """, (
+                        fp_result.get("status"),
+                        fp_result.get("recording_id"),
+                        fp_result.get("title"),
+                        fp_result.get("artist"),
+                        fp_result.get("confidence"),
+                        recommendation,
+                        s["id"],
+                    ))
+                conn.commit()
+
+            fingerprinted += 1
+            if recommendation == "approve":
+                approved_rec += 1
+            elif recommendation == "reject":
+                rejected_rec += 1
+            else:
+                review_rec += 1
+
+        except Exception as e:
+            _log(f"process_sound_pipeline: failed on sound {s['id']}: {e}")
+            errors += 1
+
+    _log(f"process_sound_pipeline: {fingerprinted} fingerprinted and moved to awaiting_review "
+         f"({approved_rec} recommend approve, {rejected_rec} recommend reject, "
+         f"{review_rec} recommend review, {errors} errors)")
+
+    return {
+        "discovered_pulled": len(discovered_batch),
+        "fingerprinted": fingerprinted,
+        "recommend_approve": approved_rec,
+        "recommend_reject": rejected_rec,
+        "recommend_review": review_rec,
+        "errors": errors,
+    }
+
+
 def run_nightly_discovery(db_conn_factory):
     """Discovery cron — runs once per night, loops every song attached to
     an active campaign, and runs discover -> qualify for each, landing

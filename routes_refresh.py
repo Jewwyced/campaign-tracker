@@ -290,6 +290,44 @@ def refresh_discover_nightly():
         _release_lock()
 
 
+@refresh_bp.route("/api/refresh/process_pipeline", methods=["POST"])
+def refresh_process_pipeline():
+    """THE state machine worker (migration step 4 — see
+    HANDOFF_state_machine_migration.md). Runs process_sound_pipeline(),
+    which moves sounds DISCOVERED -> AWAITING_REVIEW in one step —
+    fingerprinting IS the verification, there's no separate VERIFIED
+    stage to pass through.
+
+    The function itself already supports both modes naturally —
+    song_id=None processes everything, song_id=<id> scopes to one song,
+    same code path either way, no duplicate logic anywhere.
+
+    CURRENT SAFETY CAVEAT (route-level only, not a function limitation):
+    always call with ?song_id=<id> for now, scoped to a song you have NOT
+    already drained with /api/refresh/fingerprint. Every sound currently
+    gets both status='pending' (old system) AND state='discovered' (new
+    system) from the dual-write, so calling this unscoped today would
+    re-fingerprint (and re-pay for) candidates the old worker already
+    checked. Once this is proven correct against real data and the old
+    worker/qualify endpoints are retired (migration step 6), drop the
+    song_id requirement here and this becomes the one real cron job,
+    calling process_sound_pipeline(db) with no song_id at all.
+    """
+    song_id = request.args.get('song_id', type=int)
+    lock_name = f'process_pipeline_song_{song_id}' if song_id else 'process_pipeline'
+    if not _acquire_lock(lock_name):
+        return jsonify({"ok": False, "reason": "pipeline already running"}), 429
+
+    try:
+        result = ingestion_service.process_sound_pipeline(db, song_id=song_id)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        logging.exception("process_sound_pipeline run failed:")
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        _release_lock()
+
+
 @refresh_bp.route("/api/refresh", methods=["POST"])
 def refresh():
     """Legacy endpoint — runs monitor scan only."""
