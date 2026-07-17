@@ -484,7 +484,7 @@ function renderCreatorsPanel(posts) {
 
 async function loadPendingReview() {
   try {
-    const res = await fetch(`/api/songs/${songId}/pending_review`);
+    const res = await fetch(`/api/songs/${songId}/pending_review_v2`);
     const pending = res.ok ? await res.json() : [];
     document.getElementById('stat-pending').textContent = pending.length;
     document.getElementById('box-pending').classList.toggle('has-pending', pending.length > 0);
@@ -496,6 +496,16 @@ async function loadPendingReview() {
 
 let _pendingFocusIndex = -1;
 
+function _recommendationBadge(s) {
+  if (s.recommendation === 'approve') {
+    return `<span class="pending-source-badge" style="background:var(--success-bg);color:var(--success);">✓ Approve — matches ${escapeHtml(s.fingerprint_title || '')} ${s.fingerprint_artist ? 'by ' + escapeHtml(s.fingerprint_artist) : ''} (${s.fingerprint_confidence}%)</span>`;
+  }
+  if (s.recommendation === 'reject') {
+    return `<span class="pending-source-badge" style="background:#fee2e2;color:#dc2626;">✗ Reject — identified as ${escapeHtml(s.fingerprint_title || '')} ${s.fingerprint_artist ? 'by ' + escapeHtml(s.fingerprint_artist) : ''} (${s.fingerprint_confidence}%)</span>`;
+  }
+  return `<span class="pending-source-badge" style="background:var(--warning-bg);color:var(--warning);">? Needs Review — audio check inconclusive</span>`;
+}
+
 function renderPendingPanel(pending) {
   const el = document.getElementById('pending-list-inline');
   if (!pending.length) {
@@ -506,7 +516,7 @@ function renderPendingPanel(pending) {
     <div class="pending-row-wrap" id="pending-wrap-${s.id}">
       <div class="pending-row" id="pending-row-${s.id}" tabindex="0" onclick="focusPendingRow(${s.id})">
         <div class="pending-info">
-          <div class="pending-title">${escapeHtml(s.title || 'Unknown sound')}<span class="pending-source-badge">${escapeHtml(s.discovered_via || 'unknown')}</span>${s.likely_match ? '<span class="pending-source-badge" style="background:var(--success-bg);color:var(--success);">✓ likely match</span>' : '<span class="pending-source-badge" style="background:var(--warning-bg);color:var(--warning);">⚠ needs review</span>'}</div>
+          <div class="pending-title">${escapeHtml(s.title || 'Unknown sound')}<span class="pending-source-badge">${escapeHtml(s.discovered_via || 'unknown')}</span>${_recommendationBadge(s)}</div>
           <div class="pending-meta">${escapeHtml(s.author || '')} · ${fmt(s.current_video_count)} videos</div>
         </div>
         <div class="pending-actions">
@@ -637,7 +647,7 @@ function _removePendingRowOptimistically(soundDbId) {
 async function approvePending(soundDbId) {
   _removePendingRowOptimistically(soundDbId);
   try {
-    const res = await fetch(`/api/sounds/${soundDbId}/approve`, { method: 'POST' });
+    const res = await fetch(`/api/sounds/${soundDbId}/approve_v2`, { method: 'POST' });
     if (!res.ok) throw new Error('approve failed');
     // Lightweight background refresh of the approved sounds list and
     // headline stats only — NOT the full load(), which was re-fetching
@@ -655,7 +665,7 @@ async function approvePending(soundDbId) {
 async function rejectPending(soundDbId) {
   _removePendingRowOptimistically(soundDbId);
   try {
-    const res = await fetch(`/api/sounds/${soundDbId}/reject`, { method: 'POST' });
+    const res = await fetch(`/api/sounds/${soundDbId}/reject_v2`, { method: 'POST' });
     if (!res.ok) throw new Error('reject failed');
   } catch (e) {
     loadPendingReview();
@@ -679,17 +689,19 @@ async function refreshSoundsAndStatsOnly() {
 }
 
 async function fingerprintPending() {
+  // Manual "give it another push" button — mostly useful for continuing
+  // a large backlog find_new_sounds_v2 didn't fully drain in one call.
   const btn = document.getElementById('fingerprint-btn');
   btn.textContent = 'Fingerprinting...';
   btn.disabled = true;
   try {
-    const res = await fetch(`/api/refresh/fingerprint?song_id=${songId}`, { method: 'POST' });
+    const res = await fetch(`/api/refresh/process_pipeline?song_id=${songId}`, { method: 'POST' });
     const data = await res.json();
     if (data.ok) {
-      btn.textContent = `✓ Checked ${data.checked}`;
+      btn.textContent = `✓ Checked ${data.fingerprinted}`;
       await loadPendingReview();
     } else {
-      btn.textContent = data.reason === 'fingerprint backlog already running'
+      btn.textContent = data.reason === 'pipeline already running'
         ? '⏳ Already running...' : '🎵 Fingerprint Pending';
     }
   } catch (e) {
@@ -702,23 +714,23 @@ async function fingerprintPending() {
 }
 
 async function findNewSounds() {
+  // Discovery AND fingerprinting now happen together in one backend call
+  // (find_new_sounds_v2 -> discover_song_sounds + process_sound_pipeline)
+  // — no more separate client-side chaining. This call still only gets
+  // through what fits in ~25 seconds of fingerprinting, so a large batch
+  // needs a short continuation loop after — see below.
   const btn = document.getElementById('find-new-btn');
-  btn.textContent = 'Searching...';
+  btn.textContent = 'Searching + verifying...';
   btn.disabled = true;
   try {
-    const res = await fetch(`/api/songs/${songId}/find_new_sounds`, { method: 'POST' });
+    const res = await fetch(`/api/songs/${songId}/find_new_sounds_v2`, { method: 'POST' });
     const data = await res.json();
     if (data.ok) {
-      const found = (data.qualify && data.qualify.awaiting_review) || 0;
       await loadPendingReview();
-      if (found > 0 && !document.getElementById('pending-panel').classList.contains('open')) {
+      if (!document.getElementById('pending-panel').classList.contains('open')) {
         togglePanel('pending-panel');
       }
-      if (found > 0) {
-        await autoFingerprintUntilDone(found);
-      } else {
-        btn.textContent = '✓ Nothing new';
-      }
+      await continueFingerprintingUntilDone(btn, data.pipeline);
     } else {
       btn.textContent = '🔍 Find New Sounds';
     }
@@ -731,34 +743,34 @@ async function findNewSounds() {
   }, 2500);
 }
 
-async function autoFingerprintUntilDone(totalFound) {
-  // Runs right after discovery, automatically, so fingerprinting happens
-  // "behind the scenes" instead of requiring a second manual click. Each
-  // call only gets through ~6-9 candidates (real audio fetch + ACRCloud
-  // round trip per one, a few seconds each) before its own time budget
-  // runs out — so this loops, calling it repeatedly and showing real
-  // progress, until nothing's left unchecked for this song or a safety
-  // cap is hit (so a stuck/slow run can't loop forever).
-  const btn = document.getElementById('find-new-btn');
+async function continueFingerprintingUntilDone(btn, firstPipelineResult) {
+  // If the first pass (inside find_new_sounds_v2) didn't get through
+  // everything discovery found — common with a big batch, since each
+  // pass is time-boxed to ~25s of real audio-fetch + ACRCloud work — keep
+  // calling the fingerprint-only continuation until the backlog for this
+  // song is actually drained, same proven pattern as looping
+  // /api/refresh/process_pipeline manually.
   const MAX_LOOPS = 15;
-  let totalChecked = 0;
+  let totalChecked = firstPipelineResult.fingerprinted + firstPipelineResult.bulk_rejected;
+  let lastPulled = firstPipelineResult.discovered_pulled;
 
-  for (let i = 0; i < MAX_LOOPS; i++) {
-    btn.textContent = `Verifying audio... ${totalChecked}/${totalFound}`;
+  for (let i = 0; i < MAX_LOOPS && lastPulled >= 40; i++) {
+    btn.textContent = `Verifying audio... ${totalChecked} checked so far`;
     let data;
     try {
-      const res = await fetch(`/api/refresh/fingerprint?song_id=${songId}`, { method: 'POST' });
+      const res = await fetch(`/api/refresh/process_pipeline?song_id=${songId}`, { method: 'POST' });
       data = await res.json();
     } catch (e) {
       break;
     }
-    if (!data.ok || data.checked === 0) break;
-    totalChecked += data.checked;
+    if (!data.ok) break;
+    totalChecked += data.fingerprinted + data.bulk_rejected;
+    lastPulled = data.discovered_pulled;
     await loadPendingReview();
-    if (data.pulled < 40) break; // fewer than a full batch left means the queue for this song is drained
+    if (data.discovered_pulled === 0) break;
   }
 
-  btn.textContent = `✓ Found ${totalFound} — ${totalChecked} verified`;
+  btn.textContent = `✓ ${totalChecked} verified`;
   await loadPendingReview();
 }
 
