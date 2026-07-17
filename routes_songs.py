@@ -318,6 +318,116 @@ def reject_sound(sound_db_id):
     return jsonify({"ok": True, "sound_id": sound_db_id})
 
 
+@songs_bp.route("/api/songs/<int:song_id>/pending_review_v2")
+def pending_review_v2(song_id):
+    """STATE MACHINE MIGRATION, step 5 (see HANDOFF_state_machine_migration.md).
+    Parallel version of pending_review — reads `state='awaiting_review'`
+    and returns the already-computed `recommendation` directly, instead
+    of recomputing `likely_match` on every request via _classify_sound_match.
+    All the "is this actually the song" work already happened once, in
+    process_sound_pipeline, at fingerprint time — this endpoint just
+    displays that stored answer.
+
+    NOT CALLED BY song.html YET. This exists so the new pipeline can be
+    tested and verified — confirm it surfaces the same real candidates
+    pending_review does today — before the frontend is ever pointed at
+    it. Zero risk to the current working review queue either way.
+    """
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                SELECT id, sound_id, title, author, current_video_count, discovered_via,
+                       recommendation, fingerprint_status, fingerprint_title,
+                       fingerprint_artist, fingerprint_confidence
+                FROM sounds
+                WHERE song_id = %s AND state = 'awaiting_review'
+                ORDER BY current_video_count DESC NULLS LAST
+            """, (song_id,))
+            pending = [dict(r) for r in c.fetchall()]
+    return jsonify(pending)
+
+
+@songs_bp.route("/api/sounds/<int:sound_db_id>/approve_v2", methods=["POST"])
+def approve_sound_v2(sound_db_id):
+    """STATE MACHINE MIGRATION, step 5. Parallel version of approve_sound
+    — writes state='approved' AND status='approved' together. The
+    status write is NOT optional here: ingest_sound and every other part
+    of the still-running old system (refresh_approved_sounds_for_song,
+    the monitor cron, song_detail's queries) only ever look at `status`.
+    Approving through the new endpoint has to keep the old system
+    correctly informed too, or a sound approved here would be invisible
+    to everything that refreshes/displays canonical sounds today.
+
+    NOT CALLED BY song.html YET — see pending_review_v2.
+    """
+    from ingestion import service as ingestion_service
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT id, song_id, sound_id FROM sounds WHERE id=%s", (sound_db_id,))
+            row = c.fetchone()
+            if not row:
+                return jsonify({"error": "Sound not found"}), 404
+            c.execute("UPDATE sounds SET status='approved', state='approved' WHERE id=%s", (sound_db_id,))
+        conn.commit()
+
+    result = ingestion_service.ingest_sound(db, row["song_id"], row["id"], row["sound_id"], max_results=35)
+    return jsonify({"ok": True, "sound_id": sound_db_id, "posts_added": result.get("posts_added", 0)})
+
+
+@songs_bp.route("/api/sounds/<int:sound_db_id>/reject_v2", methods=["POST"])
+def reject_sound_v2(sound_db_id):
+    """STATE MACHINE MIGRATION, step 5. Parallel version of reject_sound
+    — writes state='rejected' AND status='inactive' together, same
+    old-system-compatibility reasoning as approve_sound_v2.
+
+    NOT CALLED BY song.html YET — see pending_review_v2.
+    """
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT id FROM sounds WHERE id=%s", (sound_db_id,))
+            if not c.fetchone():
+                return jsonify({"error": "Sound not found"}), 404
+            c.execute("UPDATE sounds SET status='inactive', state='rejected' WHERE id=%s", (sound_db_id,))
+        conn.commit()
+    return jsonify({"ok": True, "sound_id": sound_db_id})
+
+
+@songs_bp.route("/api/songs/<int:song_id>/find_new_sounds_v2", methods=["POST"])
+def find_new_sounds_v2(song_id):
+    """STATE MACHINE MIGRATION, step 5. Parallel version of
+    find_new_sounds — this is the actual seamless "discover AND
+    fingerprint in one click, no separate step" flow: calls
+    discover_song_sounds (unchanged — same source-aware filtering,
+    sort_by=1, volume caps that are working well right now) and then
+    process_sound_pipeline (the new single-pass fingerprint+recommend
+    worker) for the SAME song, in one request.
+
+    Scoped to one song only, same safety reasoning as process_pipeline's
+    route: avoids double-billing against whatever the old
+    run_fingerprint_backlog cron might still be draining elsewhere.
+
+    NOT CALLED BY song.html YET — see pending_review_v2.
+    """
+    from ingestion import service as ingestion_service
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT name, artist FROM songs WHERE id=%s", (song_id,))
+            row = c.fetchone()
+            if not row:
+                return jsonify({"error": "Song not found"}), 404
+            name = row["name"]
+            artist = row["artist"] or ""
+
+    discover_result = ingestion_service.discover_song_sounds(db, song_id, name, artist)
+    pipeline_result = ingestion_service.process_sound_pipeline(db, song_id=song_id)
+    return jsonify({
+        "ok": True,
+        "song_id": song_id,
+        "discovered": discover_result,
+        "pipeline": pipeline_result,
+    })
+
+
 @songs_bp.route("/api/songs/<int:song_id>/pending_review")
 def pending_review(song_id):
     """Lists sounds still sitting 'pending' for a song — the review queue

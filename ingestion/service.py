@@ -1693,7 +1693,7 @@ def process_sound_pipeline(db_conn_factory, batch_size=40, time_budget_seconds=2
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute(f"""
-                SELECT snd.id, snd.sound_id, snd.title, snd.author,
+                SELECT snd.id, snd.sound_id, snd.title, snd.author, snd.discovered_via,
                        sg.name AS song_name, sg.artist AS song_artist
                 FROM sounds snd
                 JOIN songs sg ON sg.id = snd.song_id
@@ -1706,13 +1706,35 @@ def process_sound_pipeline(db_conn_factory, batch_size=40, time_budget_seconds=2
 
     _log(f"process_sound_pipeline: {len(discovered_batch)} DISCOVERED candidates pulled")
 
-    fingerprinted = approved_rec = rejected_rec = review_rec = errors = 0
+    fingerprinted = approved_rec = rejected_rec = review_rec = bulk_rejected = errors = 0
 
     for s in discovered_batch:
         if _time.monotonic() - start > time_budget_seconds:
             _log(f"process_sound_pipeline: time budget reached, "
                  f"stopping after {fingerprinted}/{len(discovered_batch)}")
             break
+
+        # Cheap, FREE pre-filter before spending a real ACRCloud call —
+        # same _could_possibly_qualify check the old qualify step used to
+        # bulk-reject obvious zero-textual-relation garbage at no cost.
+        # Without this, every discovered candidate (including the ones
+        # discovery deliberately casts a wide net to include) would get a
+        # paid fingerprint check, even ones we're already certain would
+        # fail. This preserves that cost-saving without reintroducing it
+        # as a separate "qualify" concept the caller has to know about.
+        if not _could_possibly_qualify(s["title"], s["author"], s["song_name"], s["song_artist"], s["discovered_via"]):
+            with db_conn_factory() as conn:
+                with conn.cursor() as c:
+                    c.execute("""
+                        UPDATE sounds
+                        SET state='rejected', recommendation='reject',
+                            fingerprint_status='not_checked_bulk_rejected'
+                        WHERE id=%s
+                    """, (s["id"],))
+                conn.commit()
+            bulk_rejected += 1
+            continue
+
         try:
             with db_conn_factory() as conn:
                 with conn.cursor() as c:
@@ -1765,12 +1787,14 @@ def process_sound_pipeline(db_conn_factory, batch_size=40, time_budget_seconds=2
             _log(f"process_sound_pipeline: failed on sound {s['id']}: {e}")
             errors += 1
 
-    _log(f"process_sound_pipeline: {fingerprinted} fingerprinted and moved to awaiting_review "
+    _log(f"process_sound_pipeline: {bulk_rejected} bulk-rejected for free (no API call), "
+         f"{fingerprinted} fingerprinted and moved to awaiting_review "
          f"({approved_rec} recommend approve, {rejected_rec} recommend reject, "
          f"{review_rec} recommend review, {errors} errors)")
 
     return {
         "discovered_pulled": len(discovered_batch),
+        "bulk_rejected": bulk_rejected,
         "fingerprinted": fingerprinted,
         "recommend_approve": approved_rec,
         "recommend_reject": rejected_rec,
