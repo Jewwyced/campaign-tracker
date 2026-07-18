@@ -1190,10 +1190,19 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
     seen_ids = set()
     all_sounds = []       # everything seen, for logging/dedup purposes
     plausible_sounds = [] # only candidates that passed the junk filter
-    per_source_counts = {}  # Stage 2 instrumentation: candidates found per source, this run
+    per_source_counts = {}      # plausible candidates per source, this run
+    per_source_raw_counts = {}  # RAW candidates per source, BEFORE filtering or global dedup —
+                                 # so a 0 in per_source_counts can be told apart from "this
+                                 # source genuinely returned nothing" vs "it returned things
+                                 # but they all got filtered out or deduped against an earlier
+                                 # source's results" (e.g. title_artist running first and
+                                 # claiming a sound before hashtag's search for the same query
+                                 # even gets a chance to see it — global dedup, not a filter
+                                 # rejection, can also produce a 0 here).
 
     def _ingest_results(sounds, source_tag):
         """Tag, dedupe, and junk-filter one search's results."""
+        per_source_raw_counts[source_tag] = per_source_raw_counts.get(source_tag, 0) + len(sounds)
         found_this_source = 0
         for s in sounds:
             sid = s.get("sound_id")
@@ -1229,6 +1238,7 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
 
     _log(f"discover_song_sounds: {len(all_sounds)} unique sounds seen, "
          f"{len(plausible_sounds)} passed the plausibility filter (rest discarded, never persisted)")
+    _log(f"discover_song_sounds: per-source RAW candidates (before filter/dedup) — {per_source_raw_counts}")
     _log(f"discover_song_sounds: per-source plausible candidates — {per_source_counts}")
 
     # Score for ranking, then cap to a small, plausible ceiling — even
