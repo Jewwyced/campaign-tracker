@@ -92,21 +92,13 @@ QUALIFY_BATCH_SIZE = 20
 # hits still gets bounded to the top-scored 75, not every single one.
 MAX_DISCOVERY_CANDIDATES = 75
 
-# Once discovery has found this many plausible candidates, stop searching
-# entirely — no reason to keep crawling hashtags/challenges once there's
-# already a healthy pool to qualify from. Saves API calls, time, database
-# writes, and downstream qualification work. Deliberately lower than
-# MAX_DISCOVERY_CANDIDATES: this is "enough to stop looking," not "the
-# most we'll ever keep" — the persist-time cap still applies on top.
-#
-# Raised from 15 to 40: at 15, a song often hit the threshold purely off
-# the cheap 'title_artist'/'title_only' searches and never even tried the
-# 'hashtag' source — cheaper, cleaner evidence was left on the table
-# simply because the counter filled up early. Raising this means more of
-# the cheaper, more reliable sources actually get tried before falling
-# back to the noisier 'challenge' crawl, which still only runs as a last
-# resort.
-EARLY_STOP_CANDIDATE_THRESHOLD = 40
+# REMOVED 7/18 (see HANDOFF_state_machine_migration.md, "Discovery
+# Roadmap: Stage 3"): EARLY_STOP_CANDIDATE_THRESHOLD used to stop calling
+# further search sources once "enough" plausible candidates were found.
+# That was the wrong question once fingerprinting became the validator —
+# discovery's job isn't to decide it found enough, it's to exhaust every
+# source and let fingerprinting sort out what's real. Every source in
+# discover_song_sounds now always runs, unconditionally, no threshold.
 
 
 def _log(msg):
@@ -1207,31 +1199,37 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
     seen_ids = set()
     all_sounds = []       # everything seen, for logging/dedup purposes
     plausible_sounds = [] # only candidates that passed the junk filter
-    per_source_counts = {}      # plausible candidates per source, this run
-    per_source_raw_counts = {}  # RAW candidates per source, BEFORE filtering or global dedup —
-                                 # so a 0 in per_source_counts can be told apart from "this
-                                 # source genuinely returned nothing" vs "it returned things
-                                 # but they all got filtered out or deduped against an earlier
-                                 # source's results" (e.g. title_artist running first and
-                                 # claiming a sound before hashtag's search for the same query
-                                 # even gets a chance to see it — global dedup, not a filter
-                                 # rejection, can also produce a 0 here).
+
+    # ── Discovery Report (per design discussion 7/18) — three-tier per
+    # source, not just plausible counts: raw (what the API actually
+    # returned), new_unique (post-dedup against every earlier source in
+    # this same run, pre-filter), and plausible (post-filter). Distinguishing
+    # these tells you WHY a source shows 0 — genuinely found nothing, vs.
+    # found things another source already claimed, vs. found real new
+    # things that the filter rejected. Three very different situations
+    # that used to look identical in the logs.
+    per_source_raw = {}
+    per_source_new_unique = {}
+    per_source_plausible = {}
 
     def _ingest_results(sounds, source_tag):
         """Tag, dedupe, and junk-filter one search's results."""
-        per_source_raw_counts[source_tag] = per_source_raw_counts.get(source_tag, 0) + len(sounds)
+        per_source_raw[source_tag] = per_source_raw.get(source_tag, 0) + len(sounds)
+        new_unique_this_source = 0
         found_this_source = 0
         for s in sounds:
             sid = s.get("sound_id")
             if not sid or sid in seen_ids:
                 continue
             seen_ids.add(sid)
+            new_unique_this_source += 1
             s["discovered_via"] = source_tag
             all_sounds.append(s)
             if _is_plausible_candidate(s.get("title"), s.get("author"), title, artist, source_tag):
                 plausible_sounds.append(s)
                 found_this_source += 1
-        per_source_counts[source_tag] = per_source_counts.get(source_tag, 0) + found_this_source
+        per_source_new_unique[source_tag] = per_source_new_unique.get(source_tag, 0) + new_unique_this_source
+        per_source_plausible[source_tag] = per_source_plausible.get(source_tag, 0) + found_this_source
 
     # 'title_artist' — strongest evidence
     if targeted_query:
@@ -1255,8 +1253,12 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
 
     _log(f"discover_song_sounds: {len(all_sounds)} unique sounds seen, "
          f"{len(plausible_sounds)} passed the plausibility filter (rest discarded, never persisted)")
-    _log(f"discover_song_sounds: per-source RAW candidates (before filter/dedup) — {per_source_raw_counts}")
-    _log(f"discover_song_sounds: per-source plausible candidates — {per_source_counts}")
+    _log("discover_song_sounds: Discovery Report —")
+    for source in ("title_artist", "title_only", "hashtag", "challenge"):
+        raw = per_source_raw.get(source, 0)
+        new_unique = per_source_new_unique.get(source, 0)
+        plausible = per_source_plausible.get(source, 0)
+        _log(f"  {source:14s} searched -> {raw:4d} raw -> {new_unique:4d} new unique -> {plausible:4d} plausible")
 
     # Score for ranking, then cap to a small, plausible ceiling — even
     # after filtering, a common title can still have more "technically
