@@ -506,6 +506,11 @@ function _recommendationBadge(s) {
   return `<span class="pending-source-badge" style="background:var(--warning-bg);color:var(--warning);">? Needs Review — audio check inconclusive</span>`;
 }
 
+function _tiktokSoundUrl(s) {
+  const slug = (s.title || 'sound').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  return `https://www.tiktok.com/music/${slug}-${s.sound_id}`;
+}
+
 function renderPendingPanel(pending) {
   const el = document.getElementById('pending-list-inline');
   if (!pending.length) {
@@ -517,7 +522,7 @@ function renderPendingPanel(pending) {
       <div class="pending-row" id="pending-row-${s.id}" tabindex="0" onclick="focusPendingRow(${s.id})">
         <div class="pending-info">
           <div class="pending-title">${escapeHtml(s.title || 'Unknown sound')}<span class="pending-source-badge">${escapeHtml(s.discovered_via || 'unknown')}</span>${_recommendationBadge(s)}</div>
-          <div class="pending-meta">${escapeHtml(s.author || '')} · ${fmt(s.current_video_count)} videos</div>
+          <div class="pending-meta">${escapeHtml(s.author || '')} · ${fmt(s.current_video_count)} videos · <a href="${_tiktokSoundUrl(s)}" target="_blank" onclick="event.stopPropagation();" style="color:var(--accent);">🔗 View sound on TikTok</a></div>
         </div>
         <div class="pending-actions">
           <button class="btn-approve" onclick="event.stopPropagation();approvePending(${s.id})">Approve</button>
