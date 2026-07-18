@@ -292,26 +292,25 @@ def refresh_discover_nightly():
 
 @refresh_bp.route("/api/refresh/process_pipeline", methods=["POST"])
 def refresh_process_pipeline():
-    """THE state machine worker (migration step 4 — see
+    """THE state machine worker (migration step 6 — see
     HANDOFF_state_machine_migration.md). Runs process_sound_pipeline(),
     which moves sounds DISCOVERED -> AWAITING_REVIEW in one step —
     fingerprinting IS the verification, there's no separate VERIFIED
     stage to pass through.
 
-    The function itself already supports both modes naturally —
-    song_id=None processes everything, song_id=<id> scopes to one song,
-    same code path either way, no duplicate logic anywhere.
+    ONE PIPELINE NOW, NOT TWO: the old /api/refresh/fingerprint route
+    (run_fingerprint_backlog) is retired — delete its Render Cron Job and
+    point that schedule at this route instead, with NO song_id, so it
+    drains the global backlog exactly as originally designed. The
+    earlier caution about scoping every call to one song_id existed only
+    because the old worker was running in parallel and would have
+    double-billed against the same candidates — once that cron is gone,
+    running this unscoped hourly (or however often you scheduled the old
+    one) is correct and safe.
 
-    CURRENT SAFETY CAVEAT (route-level only, not a function limitation):
-    always call with ?song_id=<id> for now, scoped to a song you have NOT
-    already drained with /api/refresh/fingerprint. Every sound currently
-    gets both status='pending' (old system) AND state='discovered' (new
-    system) from the dual-write, so calling this unscoped today would
-    re-fingerprint (and re-pay for) candidates the old worker already
-    checked. Once this is proven correct against real data and the old
-    worker/qualify endpoints are retired (migration step 6), drop the
-    song_id requirement here and this becomes the one real cron job,
-    calling process_sound_pipeline(db) with no song_id at all.
+    song_id=<id> still works for the per-song manual "Fingerprint
+    Pending" button on a song page — same function, same code path,
+    no duplicate logic either way.
     """
     song_id = request.args.get('song_id', type=int)
     lock_name = f'process_pipeline_song_{song_id}' if song_id else 'process_pipeline'

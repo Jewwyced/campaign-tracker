@@ -1805,25 +1805,29 @@ def process_sound_pipeline(db_conn_factory, batch_size=40, time_budget_seconds=2
 
 def run_nightly_discovery(db_conn_factory):
     """Discovery cron — runs once per night, loops every song attached to
-    an active campaign, and runs discover -> qualify for each, landing
-    results in the pending review queue exactly as if a human had
-    clicked "Find New Sounds" themselves.
+    an active campaign, and runs discover -> process_sound_pipeline for
+    each, landing results directly in state='awaiting_review' with a real
+    recommendation attached, exactly as if a human had clicked "Find New
+    Sounds" themselves.
 
-    auto_approve IS HARDCODED FALSE, ALWAYS, NOT A PARAMETER. This is
-    the one guarantee that makes running discovery automatically safe:
-    nothing this function does can ever become canonical without a human
-    explicitly approving it in the review queue. This directly matches
-    the design already documented in routes_refresh.py, which explains
-    why the OLD automatic discovery cron was removed (it called an
-    un-capped legacy discovery function AND defaulted auto-approve to
-    on) — this function reuses today's capped, plausibility-filtered
-    discover_song_sounds/qualify_pending_sounds_for_song exactly as they
-    already exist, just triggered on a timer instead of a click.
+    THE ONE PIPELINE, LOCKED IN: this now calls the same
+    process_sound_pipeline used by find_new_sounds_v2 — there is no
+    longer a separate old (text-only qualify) and new (fingerprint)
+    system running in parallel. Nothing auto-approves: process_sound_
+    pipeline only ever lands sounds in awaiting_review with a
+    recommendation attached; a human still makes every final call. This
+    directly matches the design already documented in routes_refresh.py,
+    which explains why the OLD automatic discovery cron was removed (it
+    called an un-capped legacy discovery function AND defaulted
+    auto-approve to on) — this function reuses today's capped,
+    plausibility-filtered discover_song_sounds + the single fingerprint-
+    and-recommend pipeline, just triggered on a timer instead of a click.
 
     Intended schedule: once nightly (e.g. 3am), NOT hourly — re-running
     full discovery on the same songs repeatedly finds little new each
-    time; once a day is enough to have a fresh pending queue by morning,
-    without paying the discovery cost on a tighter loop for no benefit.
+    time; once a day is enough to have a fresh, already-verified queue by
+    morning, without paying the discovery cost on a tighter loop for no
+    benefit.
     """
     with db_conn_factory() as conn:
         with conn.cursor() as c:
@@ -1844,25 +1848,26 @@ def run_nightly_discovery(db_conn_factory):
             discover_result = discover_song_sounds(
                 db_conn_factory, song["id"], song["name"], song["artist"] or ""
             )
-            qualify_result = qualify_pending_sounds_for_song(
-                db_conn_factory, song["id"], auto_approve=False
+            pipeline_result = process_sound_pipeline(
+                db_conn_factory, song_id=song["id"]
             )
             results.append({
                 "song_id": song["id"],
                 "song_name": song["name"],
                 "discovered": discover_result,
-                "qualified": qualify_result,
+                "pipeline": pipeline_result,
             })
         except Exception as e:
             _log(f"run_nightly_discovery: failed on song {song['id']} ('{song['name']}'): {e}")
             results.append({"song_id": song["id"], "song_name": song["name"], "error": str(e)})
 
-    total_awaiting = sum(r.get("qualified", {}).get("awaiting_review", 0) for r in results)
-    _log(f"run_nightly_discovery: complete — {total_awaiting} total sounds now awaiting review across {len(songs)} songs")
+    total_fingerprinted = sum(r.get("pipeline", {}).get("fingerprinted", 0) for r in results)
+    _log(f"run_nightly_discovery: complete — {total_fingerprinted} sounds fingerprinted and moved "
+         f"to awaiting_review across {len(songs)} songs")
 
     return {
         "songs_processed": len(songs),
-        "total_awaiting_review": total_awaiting,
+        "total_fingerprinted": total_fingerprinted,
         "per_song": results,
     }
 
