@@ -226,10 +226,22 @@ def _is_plausible_candidate(title, author, song_name, song_artist, discovered_vi
       - title_only: still a direct search on the correct title, slightly
         weaker evidence than title_artist (no artist term to help TikTok
         disambiguate) — light filtering, not none.
-      - hashtag / challenge: exploratory, engagement-driven feeds with NO
-        relevance guarantee at all — this is exactly how "Way Down We Go"
-        and "La Muchachita" got pulled into a Griddle search. These keep
-        the original, strict independent textual check.
+      - hashtag: REVISED 7/18 based on real production evidence, not the
+        original assumption. Observed repeatedly on a real song: plain
+        phrase-text search (title_artist, title_only) returned ZERO raw
+        results, while hashtag search returned 200 raw candidates and,
+        even under the OLD strict filter, correctly surfaced the actual
+        official sound at top score with clean precision (18/200). The
+        original "low trust" assumption was based on the CHALLENGE crawl
+        specifically pulling in "Way Down We Go"/"La Muchachita" for
+        Griddle — that's a different mechanism (the broader
+        hashtag/challenge-page crawl, not a direct hashtag video search)
+        and doesn't generalize to this source. Promoted to the same
+        light-filtering tier as title_only.
+      - challenge: exploratory, engagement-driven feeds with NO relevance
+        guarantee at all — this is where the real "Way Down We Go" /
+        "La Muchachita" collision happened. Keeps the original, strict
+        independent textual check, alone now in this tier.
 
     Audio fingerprinting is now the universal verifier downstream of all
     of this — that's what makes trusting the stronger sources more here
@@ -263,9 +275,9 @@ def _is_plausible_candidate(title, author, song_name, song_artist, discovered_vi
     plausible_title_strict = title_exact or title_contains or title_multiword_strict
     plausible_title_light = title_exact or title_contains or title_multiword_light
 
-    if discovered_via == "title_only":
+    if discovered_via in ("title_only", "hashtag"):
         # High trust, light filtering — still a direct search on the
-        # correct title, so a single significant word match (not the
+        # correct title/tag, so a single significant word match (not the
         # stricter 2-word bar below) or any artist signal is enough.
         if plausible_title_light:
             return True
@@ -273,10 +285,10 @@ def _is_plausible_candidate(title, author, song_name, song_artist, discovered_vi
             return True
         return False
 
-    # hashtag / challenge (and any future/unknown source) — low/very-low
-    # trust, exploratory feeds with no search-relevance guarantee. Keep
-    # today's stricter bar: 2+ significant words, or an exact/contains
-    # match, or a confirmed artist signal.
+    # challenge (and any future/unknown source) — low trust, exploratory
+    # feeds with no search-relevance guarantee. Keep the stricter bar:
+    # 2+ significant words, or an exact/contains match, or a confirmed
+    # artist signal.
     if not artist_norm:
         return plausible_title_strict
     if plausible_title_strict:
@@ -306,12 +318,17 @@ def _could_possibly_qualify(title, author, song_name, song_artist, discovered_vi
         exact query. Trust it — don't bulk-reject on text grounds at all;
         let it through to get a real video_count check and, eventually,
         an actual audio fingerprint, which is the real verifier now.
-      - title_only: light filtering, same single-significant-word bar as
-        discovery's version.
-      - hashtag / challenge: keep the existing stricter OR check (title
-        match alone or artist match alone) — these sources still have no
-        relevance guarantee and are where real unrelated songs get pulled
-        in (e.g. "Way Down We Go", "La Muchachita").
+      - title_only / hashtag: light filtering, same single-significant-
+        word bar. hashtag promoted here 7/18 based on real production
+        evidence (see _is_plausible_candidate's docstring for the full
+        finding) — it's proving to be the most productive source on real
+        songs, not the riskiest, and the original "low trust" assumption
+        was based on the challenge crawl specifically, a different
+        mechanism.
+      - challenge: keeps the existing stricter OR check (title match
+        alone or artist match alone) — this is the source with the
+        actual documented failure case (e.g. "Way Down We Go", "La
+        Muchachita" pulled into a Griddle search).
     """
     title_norm = _normalize_str(song_name)
     s_title = _normalize_str(title)
@@ -337,9 +354,9 @@ def _could_possibly_qualify(title, author, song_name, song_artist, discovered_vi
     strong_title_possible = title_exact or title_contains or title_multiword_strict
     light_title_possible = title_exact or title_contains or title_multiword_light
 
-    if discovered_via == "title_only":
+    if discovered_via in ("title_only", "hashtag"):
         # High trust, light filtering — same bar as
-        # _is_plausible_candidate's title_only branch.
+        # _is_plausible_candidate's title_only/hashtag branch.
         if light_title_possible:
             return True
         if artist_norm and _artist_signal(author, artist_norm):
@@ -352,13 +369,13 @@ def _could_possibly_qualify(title, author, song_name, song_artist, discovered_vi
         # to learn it — video_count doesn't change whether a title matches).
         return strong_title_possible
 
-    # hashtag / challenge (and any future/unknown source) — low/very-low
-    # trust. Loosened from a strict AND to an OR previously: either
-    # signal alone (title match, or artist match) is enough to warrant
-    # the real check; _classify_sound_match downstream still requires
-    # both together to actually approve anything, so nothing new can get
-    # auto-approved from this — it only means more real candidates reach
-    # the pending queue (and now, fingerprinting) for a proper look.
+    # challenge (and any future/unknown source) — low trust. Loosened
+    # from a strict AND to an OR previously: either signal alone (title
+    # match, or artist match) is enough to warrant the real check;
+    # _classify_sound_match downstream still requires both together to
+    # actually approve anything, so nothing new can get auto-approved
+    # from this — it only means more real candidates reach the pending
+    # queue (and now, fingerprinting) for a proper look.
     if _artist_signal(author, artist_norm) or strong_title_possible:
         return True
 
