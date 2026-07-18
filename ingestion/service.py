@@ -1119,15 +1119,27 @@ def discover_via_creator_graph(db_conn_factory, song_id, song_name, song_artist=
 
 
 def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
-    """Discovery: search for candidate sounds, filter out obvious junk
-    BEFORE persisting anything, and stop searching early once enough
-    plausible candidates are found.
+    """Discovery: search for candidate sounds via EVERY available source,
+    merge everything into one pool, filter out obvious junk, then rank
+    and cap what actually gets persisted.
 
-    Each candidate is tagged with discovered_via, a permanent record of
-    which search method first surfaced it:
+    EARLY STOPPING REMOVED (7/18 — see HANDOFF_state_machine_migration.md,
+    "Discovery Roadmap: Stage 3"). This function used to stop calling
+    further search sources once EARLY_STOP_CANDIDATE_THRESHOLD plausible
+    candidates were found — that made sense when text matching was the
+    final validator and more candidates just meant more manual review
+    work. Now that fingerprinting verifies everything downstream, that
+    logic was backwards: stopping early doesn't save real cost, it risks
+    silently preventing discovery of the exact sounds you're looking for
+    — you don't know in advance which source will find the missing
+    10,000-video sound, and a fast source succeeding first shouldn't
+    prevent a slower one from ever getting a chance to run.
+
+    Every source still runs and every candidate still gets tagged with
+    discovered_via, a permanent record of which method surfaced it:
       'title_artist' — the combined "{title} {artist}" search. Requires
                         TikTok's own search relevance to match BOTH terms
-                        together — the strongest evidence, tried first.
+                        together — the strongest evidence.
       'title_only'   — title alone, or a sped-up/slowed/remix variant of
                         the title. Weaker: a common title can collide with
                         unrelated content.
@@ -1136,23 +1148,23 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
                         expensive (up to 10 pages per hashtag) — this is
                         exactly where "Griddle" collided with an unrelated
                         dance trend and pulled in dozens of wildly popular,
-                        completely unrelated sounds. Only run if cheaper
-                        sources haven't already found enough.
+                        completely unrelated sounds.
 
-    Search steps run in order from strongest to weakest evidence, and stop
-    as soon as EARLY_STOP_CANDIDATE_THRESHOLD plausible candidates have
-    been found — no reason to keep crawling hashtags once a healthy pool
-    already exists to qualify from. This saves API calls, time, and
-    avoids ever generating (let alone filtering) large amounts of noise
-    in the first place.
+    COST NOTE: since every source now always runs, a single discovery
+    call is real-time and real-API-call more expensive than before,
+    including the pricier challenge crawl every time, not just when
+    cheaper sources came up short. This is the deliberate tradeoff of
+    treating fingerprinting (cheap, ~$0.003/check) as the validator
+    instead of the text filter — worth knowing if discovery starts
+    feeling noticeably slower per click.
 
-    Every candidate is checked with _is_plausible_candidate before it's
-    even added to the working set — candidates with zero textual relation
-    to the song never get past this point, so they're never persisted to
-    the database at all. This is a historical record ("how did we find
-    this") plus a junk filter, not a recomputed confidence score — the
-    classifier at qualify time always re-derives its own confidence from
-    today's matching logic using fresh video_count data.
+    Every candidate is still checked with _is_plausible_candidate before
+    it's even added to the working set — candidates with zero textual
+    relation to the song never get past this point, so they're never
+    persisted to the database at all. This is a historical record ("how
+    did we find this") plus a junk filter, not a recomputed confidence
+    score — the classifier at qualify time always re-derives its own
+    confidence from today's matching logic using fresh video_count data.
     """
     title_clean = title.strip()
     artist_raw = artist.strip() if artist else ""
@@ -1178,13 +1190,11 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
     seen_ids = set()
     all_sounds = []       # everything seen, for logging/dedup purposes
     plausible_sounds = [] # only candidates that passed the junk filter
-
-    def _plausible_count():
-        return len(plausible_sounds)
+    per_source_counts = {}  # Stage 2 instrumentation: candidates found per source, this run
 
     def _ingest_results(sounds, source_tag):
-        """Tag, dedupe, and junk-filter one search's results. Returns True
-        if the early-stop threshold is now met."""
+        """Tag, dedupe, and junk-filter one search's results."""
+        found_this_source = 0
         for s in sounds:
             sid = s.get("sound_id")
             if not sid or sid in seen_ids:
@@ -1194,46 +1204,32 @@ def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
             all_sounds.append(s)
             if _is_plausible_candidate(s.get("title"), s.get("author"), title, artist, source_tag):
                 plausible_sounds.append(s)
-        return _plausible_count() >= EARLY_STOP_CANDIDATE_THRESHOLD
+                found_this_source += 1
+        per_source_counts[source_tag] = per_source_counts.get(source_tag, 0) + found_this_source
 
-    stopped_early_at = None
-
-    # 'title_artist' — strongest evidence, tried first
+    # 'title_artist' — strongest evidence
     if targeted_query:
         sounds = discover_sounds_from_videos(targeted_query)
-        if _ingest_results(sounds, "title_artist"):
-            stopped_early_at = "title_artist"
+        _ingest_results(sounds, "title_artist")
 
     # 'title_only' — title alone or a derivative-title variant
-    if not stopped_early_at:
-        for query in title_only_queries:
-            sounds = discover_sounds_from_videos(query)
-            if _ingest_results(sounds, "title_only"):
-                stopped_early_at = "title_only"
-                break
+    for query in title_only_queries:
+        sounds = discover_sounds_from_videos(query)
+        _ingest_results(sounds, "title_only")
 
     # 'hashtag' — hashtag search via video search endpoint
-    if not stopped_early_at:
-        for query in hashtag_queries:
-            sounds = discover_sounds_from_videos(query)
-            if _ingest_results(sounds, "hashtag"):
-                stopped_early_at = "hashtag"
-                break
+    for query in hashtag_queries:
+        sounds = discover_sounds_from_videos(query)
+        _ingest_results(sounds, "hashtag")
 
-    # 'challenge' — the expensive, weakest-evidence crawl. Only run if
-    # cheaper sources haven't already found enough.
-    if not stopped_early_at:
-        challenge_sounds = discover_sounds_from_challenge(title, artist)
-        if _ingest_results(challenge_sounds, "challenge"):
-            stopped_early_at = "challenge"
-
-    if stopped_early_at:
-        _log(f"discover_song_sounds: stopped early after '{stopped_early_at}' — "
-             f"{_plausible_count()} plausible candidates already found "
-             f"(threshold={EARLY_STOP_CANDIDATE_THRESHOLD}), skipping remaining search sources")
+    # 'challenge' — the expensive, weakest-evidence crawl. Now runs every
+    # time, same as every other source — see cost note in docstring.
+    challenge_sounds = discover_sounds_from_challenge(title, artist)
+    _ingest_results(challenge_sounds, "challenge")
 
     _log(f"discover_song_sounds: {len(all_sounds)} unique sounds seen, "
          f"{len(plausible_sounds)} passed the plausibility filter (rest discarded, never persisted)")
+    _log(f"discover_song_sounds: per-source plausible candidates — {per_source_counts}")
 
     # Score for ranking, then cap to a small, plausible ceiling — even
     # after filtering, a common title can still have more "technically
