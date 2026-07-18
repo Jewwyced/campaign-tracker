@@ -1047,6 +1047,8 @@ def discover_via_creator_graph(db_conn_factory, song_id, song_name, song_artist=
          f"(from {len(known_sound_ids)} already-known sounds)")
 
     new_candidates = []
+    new_sound_ids_seen = 0
+    rejected_examples = []
     creators_checked = 0
     for username in creators:
         if _time.monotonic() - start > CREATOR_GRAPH_TIME_BUDGET_SECONDS:
@@ -1074,6 +1076,7 @@ def discover_via_creator_graph(db_conn_factory, song_id, song_name, song_artist=
                 if not candidate_sound_id or candidate_sound_id in known_sound_ids:
                     continue
                 known_sound_ids.add(candidate_sound_id)  # dedupe within this run too
+                new_sound_ids_seen += 1
 
                 candidate = {
                     "sound_id": candidate_sound_id,
@@ -1085,6 +1088,12 @@ def discover_via_creator_graph(db_conn_factory, song_id, song_name, song_artist=
                     candidate["title"], candidate["author"], song_name, song_artist, "creator_graph"
                 ):
                     new_candidates.append(candidate)
+                elif len(rejected_examples) < 10:
+                    # Diagnostic only — so a 0-candidates run tells us WHY
+                    # (nothing new found at all, vs. new sound_ids found
+                    # but the plausibility filter rejected every one of
+                    # them) instead of leaving us guessing.
+                    rejected_examples.append((candidate["title"], candidate["author"]))
 
         except Exception as e:
             _log(f"discover_via_creator_graph: failed on creator @{username}: {e}")
@@ -1096,10 +1105,14 @@ def discover_via_creator_graph(db_conn_factory, song_id, song_name, song_artist=
             stored += 1
 
     _log(f"discover_via_creator_graph: song {song_id} — {creators_checked} creators checked, "
-         f"{len(new_candidates)} plausible candidates, {stored} new sounds stored")
+         f"{new_sound_ids_seen} new sound_ids seen (never encountered before), "
+         f"{len(new_candidates)} passed the plausibility filter, {stored} new sounds stored")
+    if rejected_examples:
+        _log(f"discover_via_creator_graph: sample of rejected candidates (title, author): {rejected_examples}")
 
     return {
         "creators_checked": creators_checked,
+        "new_sound_ids_seen": new_sound_ids_seen,
         "candidates_found": len(new_candidates),
         "stored": stored,
     }
