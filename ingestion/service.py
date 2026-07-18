@@ -1105,7 +1105,7 @@ def discover_via_creator_graph(db_conn_factory, song_id, song_name, song_artist=
     }
 
 
-
+def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
     """Discovery: search for candidate sounds, filter out obvious junk
     BEFORE persisting anything, and stop searching early once enough
     plausible candidates are found.
