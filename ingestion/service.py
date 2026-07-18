@@ -31,6 +31,22 @@ from .parsers import (
 
 SOUND_FRESHNESS_HOURS = 6
 
+# ── Coverage Engine tuning parameters ───────────────────────────────────────
+# These are tuning hypotheses, not fixed truths — expect to adjust them once
+# you've seen real coverage metrics (see determine_coverage_plan's logging)
+# across a range of actual songs. Deliberately kept as named constants, not
+# buried inline, so future tuning only ever touches this one spot.
+COVERAGE_TIER_A_VIDEO_THRESHOLD = 10_000   # video_count above this -> Tier A
+COVERAGE_TIER_B_VIDEO_THRESHOLD = 500      # video_count above this -> Tier B, else Tier C
+COVERAGE_TIER_A_TARGET_POSTS = 300
+COVERAGE_TIER_B_TARGET_POSTS = 100
+COVERAGE_TIER_C_TARGET_POSTS = 30          # matches original pre-Coverage-Engine behavior
+COVERAGE_TIER_A_FETCH_MULTIPLIER = 2       # paginate to 2x target before ranking/trimming
+COVERAGE_TIER_B_FETCH_MULTIPLIER = 2
+COVERAGE_TIER_C_FETCH_MULTIPLIER = 1       # no deep pagination for small sounds
+COVERAGE_TOP_POST_RATIO = 0.70             # of target_posts, kept by views (the "biggest videos")
+COVERAGE_RECENT_POST_RATIO = 0.30          # of target_posts, kept by recency (freshest activity)
+
 SOURCE_CACHE    = "cache"
 SOURCE_TIKAPI   = "tikapi"
 SOURCE_FALLBACK = "fallback"
@@ -547,13 +563,80 @@ def _update_sound_video_count(db_conn_factory, sound_db_id, tiktok_sound_id):
     return {"video_count_updated": True, "video_count": video_count, "error": None}
 
 
-def _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_results):
-    """Pull newest posts for a sound. TikLive returns newest first so
-    we get the most recent activity on every refresh."""
+def determine_coverage_plan(video_count):
+    """The Coverage Engine's planning layer — Phase 1 of it (see
+    HANDOFF_state_machine_migration.md; the full engine eventually also
+    owns refresh cadence, API budget allocation across sounds, and its
+    own coverage metrics — this function owns tier + pagination + post
+    selection strategy only, for now).
+
+    Decides HOW MUCH of a sound's real activity to try to capture, based
+    on how big it actually is, instead of the flat 30-post cap every
+    sound used to get regardless of size. Returns a plan dict — the
+    execution layer (_ingest_sound_posts) reads this plan and executes
+    it; it doesn't know what a "tier" is at all, so tuning coverage
+    behavior only ever means touching this one function (and the
+    constants above it), never the fetch/write logic itself.
+
+    Confirmed via real production data (7/18): a sound with hundreds or
+    thousands of real posts was only ever tracking ~15-30 of them,
+    massively undercounting real reach — and confirmed via TikLive's own
+    docs that /music-posts/ has no sort-by-views parameter, so finding
+    the biggest videos requires paginating deeper into the (apparently
+    newest-first) stream and sorting client-side ourselves, not just
+    requesting them directly. Two other TikTok data providers (SociaVault
+    among them) have the identical constraint on the equivalent endpoint
+    — this is a platform-level limitation, not something to work around
+    by switching vendors.
+    """
+    if video_count is None or video_count <= COVERAGE_TIER_B_VIDEO_THRESHOLD:
+        tier = "C"
+        target_posts = COVERAGE_TIER_C_TARGET_POSTS
+        fetch_multiplier = COVERAGE_TIER_C_FETCH_MULTIPLIER
+    elif video_count <= COVERAGE_TIER_A_VIDEO_THRESHOLD:
+        tier = "B"
+        target_posts = COVERAGE_TIER_B_TARGET_POSTS
+        fetch_multiplier = COVERAGE_TIER_B_FETCH_MULTIPLIER
+    else:
+        tier = "A"
+        target_posts = COVERAGE_TIER_A_TARGET_POSTS
+        fetch_multiplier = COVERAGE_TIER_A_FETCH_MULTIPLIER
+
+    return {
+        "tier": tier,
+        "video_count": video_count,
+        "target_posts": target_posts,
+        "fetch_target": target_posts * fetch_multiplier,
+        "max_pages": (target_posts * fetch_multiplier + 29) // 30,  # count=30 per page
+        "top_ratio": COVERAGE_TOP_POST_RATIO,
+        "recent_ratio": COVERAGE_RECENT_POST_RATIO,
+    }
+
+
+def _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, coverage_plan):
+    """Pull posts for a sound by EXECUTING a coverage plan (see
+    determine_coverage_plan) — this function deliberately knows nothing
+    about tiers, thresholds, or ratios. It just reads target_posts /
+    fetch_target / top_ratio / recent_ratio off the plan it's handed.
+    Tuning coverage behavior should never require touching this
+    function — only determine_coverage_plan and the constants above it.
+
+    TikLive returns newest first, so plain pagination alone only ever
+    gets recent activity. When fetch_target > target_posts, paginates
+    deeper, then keeps a blend: the top `top_ratio` by actual views (the
+    "biggest videos" the API can't sort for us server-side) plus the
+    most recent `recent_ratio` not already included, so a sound doesn't
+    lose fresh activity in favor of only ever showing its all-time hits.
+    """
+    target_posts = coverage_plan["target_posts"]
+    fetch_target = coverage_plan["fetch_target"]
+
     all_posts = []
     cursor = 0
-    while len(all_posts) < max_results:
+    pages_fetched = 0
+    while len(all_posts) < fetch_target:
         raw = provider.get_sound_posts_page(tiktok_sound_id, cursor=cursor, count=30)
+        pages_fetched += 1
         posts, has_more, next_cursor = parse_posts_from_music_page(raw)
         if not posts:
             break
@@ -562,8 +645,33 @@ def _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_resul
             break
         cursor = int(next_cursor) if next_cursor is not None else cursor + 35
 
-    _log(f"fetch_sound_posts id={tiktok_sound_id} -> got {len(all_posts)} posts")
-    posts_to_write = all_posts[:max_results]
+    unique_posts = {p.get("post_id"): p for p in all_posts if p.get("post_id")}
+    all_posts_unique = list(unique_posts.values())
+
+    if fetch_target > target_posts and len(all_posts_unique) > target_posts:
+        top_n = int(target_posts * coverage_plan["top_ratio"])
+        recent_n = target_posts - top_n
+        by_views = sorted(all_posts_unique, key=lambda p: p.get("views", 0) or 0, reverse=True)
+        top_posts = by_views[:top_n]
+        top_ids = {p.get("post_id") for p in top_posts}
+        recent_posts = [p for p in all_posts_unique if p.get("post_id") not in top_ids][:recent_n]
+        posts_to_write = top_posts + recent_posts
+    else:
+        posts_to_write = all_posts_unique[:target_posts]
+
+    # ── Coverage instrumentation — so tuning is based on real evidence, ──
+    # not guessing whether deeper pagination actually found anything.
+    views_list = [p.get("views", 0) or 0 for p in all_posts_unique]
+    top_view = max(views_list) if views_list else 0
+    median_view = sorted(views_list)[len(views_list) // 2] if views_list else 0
+    _log(
+        f"coverage[sound_db_id={sound_db_id}] tier={coverage_plan['tier']} "
+        f"video_count={coverage_plan['video_count']} pages_fetched={pages_fetched} "
+        f"posts_downloaded={len(all_posts)} unique_posts={len(all_posts_unique)} "
+        f"top_view={top_view:,} median_view={median_view:,} "
+        f"stored={len(posts_to_write)}/{target_posts}"
+    )
+
     today = date.today()
     added = 0
     with db_conn_factory() as conn:
@@ -752,7 +860,19 @@ def get_or_create_sound(db_conn_factory, song_id, sound):
 
 def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_results=30):
     """Refresh one Sound's posts and video-count snapshot.
-    Checks cache first — skips the provider pipeline if data is fresh."""
+    Checks cache first — skips the provider pipeline if data is fresh.
+
+    COVERAGE ENGINE, Phase 1 (see HANDOFF_state_machine_migration.md —
+    this is one piece of the eventual full engine, which will also own
+    refresh cadence and cross-sound API budget allocation; not "done"
+    yet, just tiered pagination + post selection for now): max_results
+    is now only a fallback for when video_count can't be determined —
+    the real target comes from determine_coverage_plan, called right
+    after we fetch this sound's fresh video_count below. A sound with
+    280,000 videos gets a meaningfully deeper, smarter pull than a
+    remix with 19 — no longer a flat number for every sound regardless
+    of scale.
+    """
     is_fresh, age_hours = _is_sound_fresh(db_conn_factory, sound_db_id)
     if is_fresh:
         _log(f"sound {sound_db_id} is fresh ({age_hours:.1f}h old) — skipping provider pipeline")
@@ -776,7 +896,12 @@ def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_res
     }
     stats_result = _update_sound_video_count(db_conn_factory, sound_db_id, tiktok_sound_id)
     result.update(stats_result)
-    result["posts_added"] = _ingest_sound_posts(db_conn_factory, sound_db_id, tiktok_sound_id, max_results)
+
+    coverage_plan = determine_coverage_plan(stats_result.get("video_count"))
+    result["coverage_tier"] = coverage_plan["tier"]
+    result["posts_added"] = _ingest_sound_posts(
+        db_conn_factory, sound_db_id, tiktok_sound_id, coverage_plan
+    )
 
     if not result.get("error"):
         _touch_sound_ingested(db_conn_factory, sound_db_id)
@@ -1939,6 +2064,16 @@ def refresh_approved_sounds_for_song(db_conn_factory, song_id, batch_size=15):
     through every approved sound over time. ingest_sound's own freshness
     cache means sounds refreshed recently are skipped cheaply (a DB read,
     no network call) rather than needlessly re-fetched.
+
+    COVERAGE ENGINE NOTE: batch_size (a sound COUNT) is no longer a
+    sufficient safety bound on its own — since ingest_sound now paginates
+    much deeper for Tier A/B sounds (up to ~20 pages vs. 1 before), 15
+    Tier A sounds in one batch could take far longer than 15 small ones
+    used to. Added an explicit TIME_BUDGET_SECONDS below, same pattern as
+    the fingerprint worker, so this stops safely partway through a batch
+    rather than risking a timeout — remaining sounds just get picked up
+    on the next refresh call, same as they already do today when
+    batch_size itself doesn't cover everything.
     """
     with db_conn_factory() as conn:
         with conn.cursor() as c:
@@ -1959,7 +2094,13 @@ def refresh_approved_sounds_for_song(db_conn_factory, song_id, batch_size=15):
 
     posts_added = 0
     ingested = 0
+    import time as _time
+    start = _time.monotonic()
+    TIME_BUDGET_SECONDS = 40  # see note above — count alone no longer bounds worst-case time
     for s in sounds:
+        if _time.monotonic() - start > TIME_BUDGET_SECONDS:
+            _log(f"refresh_approved_sounds_for_song: time budget reached after {ingested}/{len(sounds)}")
+            break
         result = ingest_sound(db_conn_factory, song_id, s["id"], s["sound_id"], max_results=35)
         posts_added += result.get("posts_added", 0)
         if not result.get("error"):
