@@ -252,6 +252,15 @@ class TikLiveAPIProvider:
         # TikLiveAPI requires a numeric user ID for get_account_posts(),
         # while BaseProvider currently passes secUid.
         # Redesign provider interface to support provider-specific account IDs.
+
+        music_info is preserved per-video (id/title/author of the sound
+        THAT post uses) — confirmed present in the raw /user-posts/
+        response via direct testing 7/18. This is what creator-graph
+        discovery needs: a creator's OTHER posts often use OTHER sounds
+        entirely, and this comes bundled free in this same call, no
+        extra per-video API cost. Previously this method silently
+        dropped it, which would have made graph-based discovery
+        impossible without realizing why.
         """
         if sec_uid and str(sec_uid).isdigit():
             data = self._get("/user-posts/", {"userid": sec_uid, "count": min(count, 30)})
@@ -265,6 +274,7 @@ class TikLiveAPIProvider:
         videos = data.get("videos", [])
         items = []
         for v in videos:
+            music_info = v.get("music_info") or {}
             items.append({
                 "id": v.get("video_id"),
                 "desc": v.get("title", ""),
@@ -274,6 +284,11 @@ class TikLiveAPIProvider:
                     "diggCount": v.get("digg_count", 0),
                     "commentCount": v.get("comment_count", 0),
                     "shareCount": v.get("share_count", 0),
+                },
+                "music": {
+                    "id": music_info.get("id"),
+                    "title": music_info.get("title"),
+                    "authorName": music_info.get("author"),
                 },
             })
         return {"itemList": items}

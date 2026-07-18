@@ -992,7 +992,120 @@ def discover_sounds_from_challenge(title, artist=""):
     return all_sounds
 
 
-def discover_song_sounds(db_conn_factory, song_id, title, artist=""):
+# ── Discovery Engine: creator-graph traversal ───────────────────────────────
+# Tuning/safety constants — see determine_coverage_plan's pattern above for
+# why these live here by name instead of buried inline.
+CREATOR_GRAPH_MAX_CREATORS_PER_RUN = 15   # cap creators processed per call
+CREATOR_GRAPH_POSTS_PER_CREATOR = 10      # how many of a creator's recent posts to check
+CREATOR_GRAPH_TIME_BUDGET_SECONDS = 30
+
+
+def discover_via_creator_graph(db_conn_factory, song_id, song_name, song_artist=""):
+    """Discovery Engine, new source: creator_graph (see
+    HANDOFF_state_machine_migration.md — validated 7/18 with real data
+    before building: one creator's /user-posts/ call surfaced a real
+    Chartex-confirmed sound our search-based sources had never found,
+    for free, bundled in the same call).
+
+    STRUCTURALLY DIFFERENT from every other discovery source: those all
+    work from a blank slate via search. This one requires at least one
+    already-approved sound to seed from — it traverses song -> known
+    posters of that sound -> those creators' OTHER posts -> whatever
+    OTHER sounds they've used, which search can't see at all (their
+    other posts' captions may never mention this song or artist).
+
+    Feeds discovered candidates through the exact same
+    _is_plausible_candidate filter as every other source
+    (discovered_via='creator_graph', so it's measured separately in the
+    funnel-tracking views built earlier tonight) — no special-casing
+    downstream, same fingerprint verification as anything else.
+    """
+    import time as _time
+    start = _time.monotonic()
+
+    with db_conn_factory() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                SELECT snd.sound_id AS known_sound_id
+                FROM sounds snd
+                WHERE snd.song_id = %s
+            """, (song_id,))
+            known_sound_ids = {r["known_sound_id"] for r in c.fetchall()}
+
+            c.execute("""
+                SELECT p.username, MAX(p.views) AS max_views
+                FROM posts p
+                JOIN sounds snd ON snd.id = p.sound_db_id
+                WHERE snd.song_id = %s AND snd.status = 'approved'
+                GROUP BY p.username
+                ORDER BY max_views DESC
+                LIMIT %s
+            """, (song_id, CREATOR_GRAPH_MAX_CREATORS_PER_RUN))
+            creators = [r["username"] for r in c.fetchall()]
+
+    _log(f"discover_via_creator_graph: song {song_id} — {len(creators)} creators to check "
+         f"(from {len(known_sound_ids)} already-known sounds)")
+
+    new_candidates = []
+    creators_checked = 0
+    for username in creators:
+        if _time.monotonic() - start > CREATOR_GRAPH_TIME_BUDGET_SECONDS:
+            _log(f"discover_via_creator_graph: time budget reached after {creators_checked}/{len(creators)} creators")
+            break
+        try:
+            account_raw = provider.get_account(username)
+            if not account_raw:
+                continue
+            # NUMERIC id required by get_account_posts, NOT sec_uid — see
+            # this function's docstring and the pre-existing bug noted in
+            # ingest_roster_account for why this distinction matters.
+            numeric_id = account_raw.get("userInfo", {}).get("user", {}).get("id")
+            if not numeric_id:
+                continue
+
+            posts_raw = provider.get_account_posts(numeric_id, count=CREATOR_GRAPH_POSTS_PER_CREATOR)
+            creators_checked += 1
+            if not posts_raw:
+                continue
+
+            for item in posts_raw.get("itemList", []):
+                music = item.get("music") or {}
+                candidate_sound_id = music.get("id")
+                if not candidate_sound_id or candidate_sound_id in known_sound_ids:
+                    continue
+                known_sound_ids.add(candidate_sound_id)  # dedupe within this run too
+
+                candidate = {
+                    "sound_id": candidate_sound_id,
+                    "title": music.get("title") or "",
+                    "author": music.get("authorName") or "",
+                    "discovered_via": "creator_graph",
+                }
+                if _is_plausible_candidate(
+                    candidate["title"], candidate["author"], song_name, song_artist, "creator_graph"
+                ):
+                    new_candidates.append(candidate)
+
+        except Exception as e:
+            _log(f"discover_via_creator_graph: failed on creator @{username}: {e}")
+
+    stored = 0
+    for candidate in new_candidates:
+        new_id = create_sound(db_conn_factory, song_id, candidate)
+        if new_id:
+            stored += 1
+
+    _log(f"discover_via_creator_graph: song {song_id} — {creators_checked} creators checked, "
+         f"{len(new_candidates)} plausible candidates, {stored} new sounds stored")
+
+    return {
+        "creators_checked": creators_checked,
+        "candidates_found": len(new_candidates),
+        "stored": stored,
+    }
+
+
+
     """Discovery: search for candidate sounds, filter out obvious junk
     BEFORE persisting anything, and stop searching early once enough
     plausible candidates are found.

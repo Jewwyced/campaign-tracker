@@ -327,6 +327,41 @@ def refresh_process_pipeline():
         _release_lock()
 
 
+@refresh_bp.route("/api/refresh/creator_graph", methods=["POST"])
+def refresh_creator_graph():
+    """Discovery Engine, new source (see HANDOFF_state_machine_migration.md
+    — validated 7/18 with real data before building). Traverses the
+    posters of a song's already-approved sounds to find sound_ids search
+    could never surface. Requires at least one approved sound to seed
+    from — a chicken-and-egg source, structurally different from the
+    others, so this is its own explicit route rather than folded into
+    "Find New Sounds".
+    """
+    song_id = request.args.get('song_id', type=int)
+    if not song_id:
+        return jsonify({"ok": False, "error": "song_id is required"}), 400
+
+    lock_name = f'creator_graph_song_{song_id}'
+    if not _acquire_lock(lock_name):
+        return jsonify({"ok": False, "reason": "creator graph discovery already running"}), 429
+
+    try:
+        with db() as conn:
+            with conn.cursor() as c:
+                c.execute("SELECT name, artist FROM songs WHERE id=%s", (song_id,))
+                row = c.fetchone()
+                if not row:
+                    return jsonify({"ok": False, "error": "song not found"}), 404
+
+        result = ingestion_service.discover_via_creator_graph(db, song_id, row["name"], row["artist"] or "")
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        logging.exception("discover_via_creator_graph run failed:")
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        _release_lock()
+
+
 @refresh_bp.route("/api/refresh", methods=["POST"])
 def refresh():
     """Legacy endpoint — runs monitor scan only."""
