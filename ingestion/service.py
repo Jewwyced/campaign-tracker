@@ -874,7 +874,15 @@ def get_or_create_sound(db_conn_factory, song_id, sound):
     already tagged from an earlier discovery pass, a later rediscovery of
     the same sound_id keeps the original value — this is a historical
     record of how we first found it, not something that should shift
-    around on every rediscovery.
+    around on every rediscovery. Same treatment for discovery_query/
+    discovery_sort_by (Discovery Memory — see
+    HANDOFF_state_machine_migration.md).
+
+    FIXED 7/19: this is the function discover_song_sounds's final storage
+    loop actually calls — Discovery Memory's discovery_query/
+    discovery_sort_by were only added to create_sound (a different,
+    less-used function) earlier, so they were silently staying NULL for
+    every real discovery run despite the code "working."
 
     DUAL-WRITE (state machine migration, in progress — see
     HANDOFF_state_machine_migration.md): writes `state='discovered'`
@@ -885,14 +893,17 @@ def get_or_create_sound(db_conn_factory, song_id, sound):
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("""
-                INSERT INTO sounds (song_id, sound_id, title, author, status, state, discovered_via)
-                VALUES (%s,%s,%s,%s,'pending','discovered',%s)
+                INSERT INTO sounds (song_id, sound_id, title, author, status, state, discovered_via, discovery_query, discovery_sort_by)
+                VALUES (%s,%s,%s,%s,'pending','discovered',%s,%s,%s)
                 ON CONFLICT (song_id, sound_id) DO UPDATE SET
                     title=EXCLUDED.title,
                     author=EXCLUDED.author,
-                    discovered_via=COALESCE(sounds.discovered_via, EXCLUDED.discovered_via)
+                    discovered_via=COALESCE(sounds.discovered_via, EXCLUDED.discovered_via),
+                    discovery_query=COALESCE(sounds.discovery_query, EXCLUDED.discovery_query),
+                    discovery_sort_by=COALESCE(sounds.discovery_sort_by, EXCLUDED.discovery_sort_by)
                 RETURNING id
-            """, (song_id, sound["sound_id"], sound["title"], sound["author"], sound.get("discovered_via")))
+            """, (song_id, sound["sound_id"], sound["title"], sound["author"], sound.get("discovered_via"),
+                  sound.get("discovery_query"), sound.get("discovery_sort_by")))
             row = c.fetchone()
         conn.commit()
     return row["id"] if row else None
@@ -2111,6 +2122,15 @@ def process_sound_pipeline(db_conn_factory, batch_size=40, time_budget_seconds=2
             info = provider.get_sound_info(s["sound_id"])
             parsed = parse_sound_info(info)
             play_url = (parsed or {}).get("play_url")
+            # FIXED 7/19: video_count was already sitting in `parsed`
+            # (parse_sound_info returns it) but never actually stored —
+            # meaning every candidate showed "0 videos" in the review UI
+            # regardless of its real size, since current_video_count was
+            # never populated for anything that hadn't already been
+            # through the OLD ingest_sound path (only approved sounds go
+            # through that). This was hiding real size information from
+            # reviewers on every pending candidate.
+            video_count = (parsed or {}).get("video_count")
 
             fp_result = _fingerprint.fingerprint_sound(play_url, s["song_name"], s["song_artist"])
             recommendation = _compute_recommendation(fp_result.get("status"), fp_result.get("confidence"))
@@ -2129,6 +2149,7 @@ def process_sound_pipeline(db_conn_factory, batch_size=40, time_budget_seconds=2
                             fingerprint_confidence=%s,
                             fingerprint_checked_at=now(),
                             recommendation=%s,
+                            current_video_count=COALESCE(%s, current_video_count),
                             state='awaiting_review'
                         WHERE id=%s
                     """, (
@@ -2138,6 +2159,7 @@ def process_sound_pipeline(db_conn_factory, batch_size=40, time_budget_seconds=2
                         fp_result.get("artist"),
                         fp_result.get("confidence"),
                         recommendation,
+                        video_count,
                         s["id"],
                     ))
                 conn.commit()
