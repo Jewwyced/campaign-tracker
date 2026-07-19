@@ -362,6 +362,28 @@ def refresh_creator_graph():
         _release_lock()
 
 
+@refresh_bp.route("/api/sounds/<int:sound_db_id>/force_refresh", methods=["POST"])
+def force_refresh_sound(sound_db_id):
+    """Manually force-refresh ONE sound, bypassing the freshness cache
+    entirely. Needed for testing right after a Coverage Engine tuning
+    change (e.g. adjusting tier thresholds) — without this, you'd have
+    to wait out SOUND_FRESHNESS_HOURS before a real re-fetch happens,
+    even though clicking 'Refresh' looks like it should have worked.
+    """
+    from ingestion import service as ingestion_service
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT song_id, sound_id, status FROM sounds WHERE id=%s", (sound_db_id,))
+            row = c.fetchone()
+            if not row:
+                return jsonify({"ok": False, "error": "sound not found"}), 404
+
+    result = ingestion_service.ingest_sound(
+        db, row["song_id"], sound_db_id, row["sound_id"], force=True
+    )
+    return jsonify({"ok": True, **result})
+
+
 @refresh_bp.route("/api/refresh", methods=["POST"])
 def refresh():
     """Legacy endpoint — runs monitor scan only."""

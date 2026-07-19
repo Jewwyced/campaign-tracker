@@ -877,9 +877,12 @@ def get_or_create_sound(db_conn_factory, song_id, sound):
     return row["id"] if row else None
 
 
-def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_results=30):
+def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_results=30, force=False):
     """Refresh one Sound's posts and video-count snapshot.
     Checks cache first — skips the provider pipeline if data is fresh.
+    Pass force=True to bypass the freshness cache entirely (e.g. for
+    manual testing right after a Coverage Engine tuning change, or an
+    urgent refresh that can't wait out SOUND_FRESHNESS_HOURS).
 
     COVERAGE ENGINE, Phase 1 (see HANDOFF_state_machine_migration.md —
     this is one piece of the eventual full engine, which will also own
@@ -892,17 +895,18 @@ def ingest_sound(db_conn_factory, song_id, sound_db_id, tiktok_sound_id, max_res
     remix with 19 — no longer a flat number for every sound regardless
     of scale.
     """
-    is_fresh, age_hours = _is_sound_fresh(db_conn_factory, sound_db_id)
-    if is_fresh:
-        _log(f"sound {sound_db_id} is fresh ({age_hours:.1f}h old) — skipping provider pipeline")
-        return {
-            "sound_db_id": sound_db_id,
-            "video_count_updated": False,
-            "posts_added": 0,
-            "error": None,
-            "source": SOURCE_CACHE,
-            "degraded": False,
-        }
+    if not force:
+        is_fresh, age_hours = _is_sound_fresh(db_conn_factory, sound_db_id)
+        if is_fresh:
+            _log(f"sound {sound_db_id} is fresh ({age_hours:.1f}h old) — skipping provider pipeline")
+            return {
+                "sound_db_id": sound_db_id,
+                "video_count_updated": False,
+                "posts_added": 0,
+                "error": None,
+                "source": SOURCE_CACHE,
+                "degraded": False,
+            }
 
     # Cache miss or stale — continue through the provider pipeline
     result = {
