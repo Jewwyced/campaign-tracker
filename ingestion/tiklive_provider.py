@@ -96,7 +96,12 @@ class TikLiveAPIProvider:
             author = v.get("author", {})
             items.append({
                 "id": v.get("video_id"),
-                "desc": v.get("title", "")[:300],
+                # FIXED 7/18 — was v.get("title", "")[:300], which crashed
+                # production's monitor cron: .get()'s default only fires
+                # when the key is MISSING, not when TikTok returns the key
+                # with an explicit null value. `(v.get("title") or "")`
+                # safely handles both cases.
+                "desc": (v.get("title") or "")[:300],
                 "createTime": v.get("create_time"),
                 "stats": {
                     "playCount": int(v.get("play_count") or 0),
@@ -110,7 +115,7 @@ class TikLiveAPIProvider:
                 },
                 "authorStats": {},
                 "video": {
-                    "cover": v.get("cover", ""),
+                    "cover": v.get("cover") or "",
                 },
             })
 
@@ -172,8 +177,10 @@ class TikLiveAPIProvider:
                     "item": {
                         "music": {
                             "id": music_id,
-                            "title": music_info.get("title", "")[:50],
-                            "authorName": music_info.get("author", ""),
+                            # Same class of bug as get_sound_posts_page above —
+                            # fixed 7/18.
+                            "title": (music_info.get("title") or "")[:50],
+                            "authorName": music_info.get("author") or "",
                         }
                     }
                 })
