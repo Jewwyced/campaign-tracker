@@ -37,7 +37,17 @@ SOUND_FRESHNESS_HOURS = 6
 # across a range of actual songs. Deliberately kept as named constants, not
 # buried inline, so future tuning only ever touches this one spot.
 COVERAGE_TIER_A_VIDEO_THRESHOLD = 10_000   # video_count above this -> Tier A
-COVERAGE_TIER_B_VIDEO_THRESHOLD = 500      # video_count above this -> Tier B, else Tier C
+COVERAGE_TIER_B_VIDEO_THRESHOLD = 50        # video_count above this -> Tier B, else Tier C
+                                             # LOWERED 7/18 from 500: real production data showed
+                                             # most approved sounds live in the 1-500 range, and a
+                                             # sound with 486 real videos (someone's single biggest
+                                             # asset for a song) was defaulting to Tier C (30 posts)
+                                             # purely because 486 < 500 — an arbitrary line, not a
+                                             # real distinction. Confirmed: that sound only had 42
+                                             # posts actually stored despite 486 real videos existing.
+                                             # Tier A's 10,000 threshold is left as-is for now —
+                                             # no real evidence yet on what a genuinely viral approved
+                                             # sound looks like in this dataset to recalibrate it.
 COVERAGE_TIER_A_TARGET_POSTS = 300
 COVERAGE_TIER_B_TARGET_POSTS = 100
 COVERAGE_TIER_C_TARGET_POSTS = 30          # matches original pre-Coverage-Engine behavior
