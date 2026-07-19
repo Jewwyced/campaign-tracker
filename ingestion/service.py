@@ -784,7 +784,17 @@ def discover_sounds(query):
 def discover_sounds_from_videos(query, publish_time=7):
     """Workflow B: discover sounds by searching recent videos and extracting music IDs.
     This finds NEW sounds being used this week, not historically relevant sounds.
-    Returns list of dicts with sound_id, title, author, frequency (how many videos used it)."""
+    Returns list of dicts with sound_id, title, author, frequency (how many videos used it),
+    plus discovery_query (Discovery Memory — see HANDOFF_state_machine_migration.md's
+    "Discovery Memory" section) so future analysis can answer "which specific query
+    finds the biggest sounds" instead of only knowing the broad source category.
+
+    NOTE: sort mode is NOT a parameter here — tiklive_provider.py's
+    search_sounds() hardcodes sort_by=1 (like count) internally, not
+    something this function controls. discovery_sort_by below records
+    that TRUE fixed value for Discovery Memory purposes, rather than
+    implying this function can vary it (it can't, today).
+    """
     raw = provider.search_sounds(query)
     if not raw:
         return []
@@ -810,6 +820,8 @@ def discover_sounds_from_videos(query, publish_time=7):
                 "title": music.get("title", "Unknown"),
                 "author": music.get("authorName", ""),
                 "frequency": 0,
+                "discovery_query": query,
+                "discovery_sort_by": "likes",  # true fixed value — see note above
             }
         music_meta[mid]["frequency"] = music_counts[mid]
 
@@ -830,15 +842,24 @@ def create_sound(db_conn_factory, song_id, sound):
     in parallel. Do not remove the `status` write until the new
     endpoints are confirmed working and status/fingerprint_status are
     formally retired (migration step 6).
+
+    DISCOVERY MEMORY (7/19 — see HANDOFF_state_machine_migration.md's
+    "Discovery Memory" section): also stores discovery_query/
+    discovery_sort_by — the literal search string (or hashtag, or
+    'creator_graph:<username>') that actually surfaced this candidate,
+    not just the broad discovered_via category. This is what eventually
+    lets you ask "which specific queries find the biggest sounds" instead
+    of only knowing which category of source worked.
     """
     with db_conn_factory() as conn:
         with conn.cursor() as c:
             c.execute("""
-                INSERT INTO sounds (song_id, sound_id, title, author, status, state, discovered_via)
-                VALUES (%s,%s,%s,%s,'pending','discovered',%s)
+                INSERT INTO sounds (song_id, sound_id, title, author, status, state, discovered_via, discovery_query, discovery_sort_by)
+                VALUES (%s,%s,%s,%s,'pending','discovered',%s,%s,%s)
                 ON CONFLICT (song_id, sound_id) DO NOTHING
                 RETURNING id
-            """, (song_id, sound["sound_id"], sound["title"], sound["author"], sound.get("discovered_via")))
+            """, (song_id, sound["sound_id"], sound["title"], sound["author"], sound.get("discovered_via"),
+                  sound.get("discovery_query"), sound.get("discovery_sort_by")))
             row = c.fetchone()
         conn.commit()
     return row["id"] if row else None
@@ -994,14 +1015,27 @@ def discover_sounds_from_challenge(title, artist=""):
                     continue
                 seen_sound_ids.add(music_id)
                 new_this_page += 1
+                # FIXED 7/19 — this used to append the raw nested TikTok
+                # shape ({"item": {"music": {...}}}), which _ingest_results
+                # in discover_song_sounds can't read (it expects flat
+                # dicts with s.get("sound_id") etc). That meant
+                # sid = s.get("sound_id") was silently None for EVERY
+                # challenge candidate, ever — challenge has been
+                # contributing zero real candidates to any song, always,
+                # not because it found nothing new but because of this
+                # shape mismatch. Confirmed by re-checking the "275 raw ->
+                # 0 new unique" Discovery Report line from earlier tonight
+                # — that wasn't redundancy, it was this bug. Now flat,
+                # matching discover_sounds_from_videos's shape, plus
+                # discovery_query tagged with the actual hashtag (Discovery
+                # Memory — see HANDOFF_state_machine_migration.md).
                 all_sounds.append({
-                    "item": {
-                        "music": {
-                            "id": music_id,
-                            "title": music_info.get("title", "")[:50],
-                            "authorName": music_info.get("author", ""),
-                        }
-                    }
+                    "sound_id": music_id,
+                    "title": (music_info.get("title") or "")[:50],
+                    "author": music_info.get("author") or "",
+                    "frequency": 1,
+                    "discovery_query": f"#{hashtag}",
+                    "discovery_sort_by": "challenge_crawl",
                 })
 
             _log(f"  #{cha_name} page {pages+1}: {len(videos)} videos, {new_this_page} new sounds")
@@ -1018,7 +1052,7 @@ def discover_sounds_from_challenge(title, artist=""):
 # ── Discovery Engine: creator-graph traversal ───────────────────────────────
 # Tuning/safety constants — see determine_coverage_plan's pattern above for
 # why these live here by name instead of buried inline.
-CREATOR_GRAPH_MAX_CREATORS_PER_RUN = 15   # cap creators processed per call
+CREATOR_GRAPH_MAX_CREATORS_PER_RUN = 30   # raised 7/18 from 15 — see below
 CREATOR_GRAPH_POSTS_PER_CREATOR = 10      # how many of a creator's recent posts to check
 CREATOR_GRAPH_TIME_BUDGET_SECONDS = 30
 
@@ -1036,6 +1070,26 @@ def discover_via_creator_graph(db_conn_factory, song_id, song_name, song_artist=
     posters of that sound -> those creators' OTHER posts -> whatever
     OTHER sounds they've used, which search can't see at all (their
     other posts' captions may never mention this song or artist).
+
+    REVISED 7/18 after real evidence showed high variance run-to-run: the
+    first-ever test (a single essentially-random poster) found a real,
+    Chartex-confirmed big sound immediately; a follow-up test (the
+    top-15-by-views posters, same 15 every time) found nothing across
+    multiple runs. This ISN'T "random creators don't work, need curated
+    fan pages instead" — it's that a fixed top-15 sample, re-checked
+    identically every run, can only ever explore 15 creators total, ever.
+    The real fix is NEVER RE-CHECKING THE SAME CREATOR TWICE for a given
+    song — tracked in the creator_graph_checked table (see schema note
+    below) — so every run explores genuinely new ground instead of
+    burning budget re-confirming the same 15 people found nothing new.
+
+    REQUIRES this table (run once in Neon, additive, safe):
+        CREATE TABLE IF NOT EXISTS creator_graph_checked (
+            song_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (song_id, username)
+        );
 
     Feeds discovered candidates through the exact same
     _is_plausible_candidate filter as every other source
@@ -1055,18 +1109,27 @@ def discover_via_creator_graph(db_conn_factory, song_id, song_name, song_artist=
             """, (song_id,))
             known_sound_ids = {r["known_sound_id"] for r in c.fetchall()}
 
+            # Broadened + never repeats: previously ORDER BY max_views DESC
+            # LIMIT 15 meant every single run checked the exact same 15
+            # biggest-viewed posters, forever. Now excludes anyone already
+            # checked for this song (creator_graph_checked), so repeated
+            # runs genuinely explore new creators instead of re-confirming
+            # the same handful found nothing.
             c.execute("""
                 SELECT p.username, MAX(p.views) AS max_views
                 FROM posts p
                 JOIN sounds snd ON snd.id = p.sound_db_id
                 WHERE snd.song_id = %s AND snd.status = 'approved'
+                  AND p.username NOT IN (
+                      SELECT username FROM creator_graph_checked WHERE song_id = %s
+                  )
                 GROUP BY p.username
                 ORDER BY max_views DESC
                 LIMIT %s
-            """, (song_id, CREATOR_GRAPH_MAX_CREATORS_PER_RUN))
+            """, (song_id, song_id, CREATOR_GRAPH_MAX_CREATORS_PER_RUN))
             creators = [r["username"] for r in c.fetchall()]
 
-    _log(f"discover_via_creator_graph: song {song_id} — {len(creators)} creators to check "
+    _log(f"discover_via_creator_graph: song {song_id} — {len(creators)} NEW (never-checked) creators to check "
          f"(from {len(known_sound_ids)} already-known sounds)")
 
     new_candidates = []
@@ -1078,6 +1141,18 @@ def discover_via_creator_graph(db_conn_factory, song_id, song_name, song_artist=
             _log(f"discover_via_creator_graph: time budget reached after {creators_checked}/{len(creators)} creators")
             break
         try:
+            # Mark checked FIRST, regardless of what happens below — a
+            # private/deleted account or an API failure is a durable fact
+            # about that creator, not worth re-attempting every future run.
+            with db_conn_factory() as conn:
+                with conn.cursor() as c:
+                    c.execute("""
+                        INSERT INTO creator_graph_checked (song_id, username)
+                        VALUES (%s, %s)
+                        ON CONFLICT (song_id, username) DO NOTHING
+                    """, (song_id, username))
+                conn.commit()
+
             account_raw = provider.get_account(username)
             if not account_raw:
                 continue
@@ -1106,6 +1181,8 @@ def discover_via_creator_graph(db_conn_factory, song_id, song_name, song_artist=
                     "title": music.get("title") or "",
                     "author": music.get("authorName") or "",
                     "discovered_via": "creator_graph",
+                    "discovery_query": f"creator:{username}",
+                    "discovery_sort_by": "creator_graph",
                 }
                 if _is_plausible_candidate(
                     candidate["title"], candidate["author"], song_name, song_artist, "creator_graph"
