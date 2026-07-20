@@ -507,7 +507,11 @@ function renderSoundsPanel(sounds) {
   const sorted = [...sounds].sort((a,b) => (parseFloat(b.velocity)||0) - (parseFloat(a.velocity)||0));
   el.innerHTML = sorted.map(s => {
     const vel = parseFloat(s.velocity) || 0;
-    const velEmoji = vel >= 0.4 ? '🔥' : vel >= 0.2 ? '📈' : vel > 0 ? '〰️' : '';
+    // Thresholds recalibrated for real 24h video-count growth (typically
+    // 0-6% for an active sound, per Chartex's own 24h % Growth column) —
+    // the old 0.4/0.2 cutoffs were tuned for the previous sampled-post
+    // ratio, which lived on a completely different, much larger scale.
+    const velEmoji = vel >= 0.03 ? '🔥' : vel >= 0.01 ? '📈' : vel > 0 ? '〰️' : '';
     const velText = vel > 0 ? (vel * 100).toFixed(0) + '% daily velocity' : '';
     return `<div class="sound-row">
       <div style="flex:1;min-width:0;">
