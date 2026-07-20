@@ -114,8 +114,8 @@ def song_detail(song_id):
                 SELECT id, sound_id, title, author, status, current_video_count,
                        posts_24h, posts_7d, velocity,
                        -- How many of this sound's posts we've actually
-                       -- collected into our own posts table — the numerator
-                       -- for a real "coverage %" (collected / current_video_count).
+                       -- collected into our own posts table -- the numerator
+                       -- for a real coverage ratio (collected / current_video_count).
                        -- Scalar subquery so it isn't affected by anything
                        -- else joined against sounds elsewhere on this page.
                        (SELECT COUNT(*) FROM posts p WHERE p.sound_db_id = sounds.id) as posts_collected
@@ -365,7 +365,9 @@ def pending_review(song_id):
             song_artist = song_row["artist"] if song_row else ""
 
             c.execute("""
-                SELECT id, sound_id, title, author, current_video_count, discovered_via
+                SELECT id, sound_id, title, author, current_video_count, discovered_via,
+                       fingerprint_status, ai_review_status, ai_review_confidence,
+                       ai_review_recommendation, ai_review_reasoning
                 FROM sounds
                 WHERE song_id = %s AND status = 'pending'
                 ORDER BY current_video_count DESC NULLS LAST
@@ -379,6 +381,17 @@ def pending_review(song_id):
         )
 
     return jsonify(pending)
+
+
+@songs_bp.route("/api/songs/<int:song_id>/run_ai_review", methods=["POST"])
+def run_ai_review(song_id):
+    """Triggers the AI sound-review 'final stamp' for this song's pending
+    candidates — only ones fingerprinting already checked and couldn't
+    confirm as a master-recording match (see run_ai_review_backlog).
+    Never changes sounds.status; only writes ai_review_* fields the
+    pending review UI reads."""
+    result = ingestion.run_ai_review_backlog(db, batch_size=15, song_id=song_id)
+    return jsonify({"ok": True, **result})
 
 
 @songs_bp.route("/api/songs/<int:song_id>/posts")
