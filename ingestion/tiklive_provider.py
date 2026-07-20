@@ -132,10 +132,27 @@ class TikLiveAPIProvider:
         }
 
 
-    def search_sounds(self, query, max_pages=15, min_new_per_page=3):
+    def search_sounds(self, query, max_pages=30, min_new_per_page=3, low_yield_tolerance=6):
         """Search videos by keyword with adaptive pagination.
-        Stops early when new sounds per page drops below min_new_per_page.
-        Retries once on timeout to handle transient TikLive failures."""
+        Stops early when new sounds per page drops below min_new_per_page
+        for `low_yield_tolerance` consecutive pages.
+        Retries once on timeout to handle transient TikLive failures.
+
+        LOOSENED 7/20 — this was a SECOND, deeper early-stop mechanism we
+        hadn't touched when the outer discover_song_sounds loop's
+        EARLY_STOP_CANDIDATE_THRESHOLD was removed earlier. Even with
+        every source now running unconditionally, each INDIVIDUAL query
+        was still quietly cutting itself short after just 2 consecutive
+        low-yield pages — capping real depth well below what max_pages
+        would otherwise allow, and very likely the actual reason a scan
+        was surfacing ~50 candidates instead of hundreds. Raised
+        low_yield_tolerance from a hardcoded 2 to 6, and max_pages default
+        from 15 to 30 — same "verification is cheap now, worth digging
+        deeper" economics already applied everywhere else tonight. Real
+        cost note: at count=35/page, 30 pages is up to 1,050 raw results
+        per single query — a real, meaningful increase in both API calls
+        and per-click time, not free.
+        """
         seen_ids = set()
         items = []
         cursor = 0
@@ -188,11 +205,12 @@ class TikLiveAPIProvider:
             duplicates = len(videos) - new_this_page
             _log(f"search page {page+1}: {len(videos)} videos, {new_this_page} new, {duplicates} duplicates (total {len(items)})")
 
-            # Adaptive stop — configurable minimum yield
+            # Adaptive stop — configurable minimum yield, configurable tolerance
             if new_this_page < min_new_per_page:
                 consecutive_low_yield += 1
-                if consecutive_low_yield >= 2:
-                    _log(f"stopping early — yield below {min_new_per_page} for 2 consecutive pages")
+                if consecutive_low_yield >= low_yield_tolerance:
+                    _log(f"stopping early — yield below {min_new_per_page} for "
+                         f"{low_yield_tolerance} consecutive pages")
                     break
             else:
                 consecutive_low_yield = 0

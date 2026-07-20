@@ -95,12 +95,15 @@ QUALIFY_BATCH_SIZE = 20
 # are worth tracking — but the previous cap of 30 was tuned for "avoid
 # database bloat," not "give a reviewer a real pool to work through."
 #
-# Raised from 30 to 75 to surface more legitimate candidates for review
-# (paired with the QUALIFY_BATCH_SIZE increase above, which now actually
-# runs the real classifier on more of them per call) — still a real cap,
-# not "store everything," so a song with hundreds of technically-plausible
-# hits still gets bounded to the top-scored 75, not every single one.
-MAX_DISCOVERY_CANDIDATES = 75
+# Raised from 30 to 75, then 75 to 300 (7/20) — this second raise pairs
+# with search_sounds() now digging much deeper per query (loosened
+# low-yield tolerance, more pages). Finding more raw candidates but still
+# capping storage at 75 would have thrown most of that new depth away —
+# this matches the actual ambition (hundreds of real candidates per scan,
+# not dozens). Still a real cap, not "store everything" — a song with
+# more than 300 technically-plausible hits still gets bounded to the
+# top-scored 300, ranked by the same scoring function as always.
+MAX_DISCOVERY_CANDIDATES = 300
 
 # REMOVED 7/18 (see HANDOFF_state_machine_migration.md, "Discovery
 # Roadmap: Stage 3"): EARLY_STOP_CANDIDATE_THRESHOLD used to stop calling
