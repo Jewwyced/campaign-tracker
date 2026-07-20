@@ -49,7 +49,7 @@
   .btn-neutral:hover { border-color: var(--accent); color: var(--accent); }
 
   .section-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
-  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px; }
+  .stat-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 28px; }
   .stat-box { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
   .stat-box .label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
   .stat-box .value { font-size: 28px; font-weight: 700; margin-top: 6px; letter-spacing: -0.5px; }
@@ -169,7 +169,8 @@
   <div class="stat-row">
     <div class="stat-box"><div class="label">Songs</div><div class="value" id="stat-songs">-</div></div>
     <div class="stat-box"><div class="label">Creators</div><div class="value" id="stat-creators">-</div></div>
-    <div class="stat-box"><div class="label">Total views</div><div class="value" id="stat-views">-</div></div>
+    <div class="stat-box"><div class="label">Views (sampled posts)</div><div class="value" id="stat-views">-</div></div>
+    <div class="stat-box"><div class="label">Total videos (TikTok-reported)</div><div class="value" id="stat-total-videos">-</div></div>
     <div class="stat-box"><div class="label">Avg engagement</div><div class="value" id="stat-eng">-</div></div>
   </div>
 
@@ -295,8 +296,14 @@ function renderOverviewStats(posts) {
   const totalViews = posts.reduce((s,p) => s + (parseInt(p.views)||0), 0);
   const totalLikes = posts.reduce((s,p) => s + (parseInt(p.likes)||0), 0);
   const creators = new Set(posts.map(p => p.username)).size;
+  // TikTok's own reported video count, summed across this campaign's songs —
+  // the TRUE total. totalViews above is only from the posts we've actually
+  // collected (a sample), which is why these two numbers live on very
+  // different scales — see the song detail page for the same distinction.
+  const totalVideosReported = songsData.reduce((s, song) => s + (parseInt(song.total_videos_reported) || 0), 0);
   document.getElementById('stat-songs').textContent = songsData.length || '-';
   document.getElementById('stat-views').textContent = fmt(totalViews);
+  document.getElementById('stat-total-videos').textContent = fmt(totalVideosReported);
   document.getElementById('stat-creators').textContent = creators || '-';
   const avgEng = totalViews > 0 ? totalLikes / totalViews : 0;
   document.getElementById('stat-eng').textContent = pct(avgEng);

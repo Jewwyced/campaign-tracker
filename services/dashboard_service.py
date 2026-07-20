@@ -61,6 +61,23 @@ def get_dashboard_stats():
             """)
             total_sounds = c.fetchone()["n"] or 0
 
+            # TikTok's own reported video count, summed across every approved
+            # sound in an active campaign — the TRUE total. total_views above
+            # is only a sum over the posts we've actually sampled/collected,
+            # which is necessarily a much smaller number — see the same
+            # distinction made on the song detail page. Kept as a separate
+            # query (not folded into the totals query above) specifically to
+            # avoid double-counting current_video_count once a sound has more
+            # than one post row joined against it.
+            c.execute("""
+                SELECT COALESCE(SUM(snd.current_video_count), 0) as n
+                FROM sounds snd
+                JOIN campaign_songs cs ON cs.song_id = snd.song_id
+                JOIN campaigns c ON c.id = cs.campaign_id
+                WHERE snd.status = 'approved' AND c.status = 'In Progress'
+            """)
+            total_videos_reported = c.fetchone()["n"] or 0
+
             # Top campaign by views
             c.execute("""
                 SELECT c.id, c.name, c.artist,
@@ -131,6 +148,7 @@ def get_dashboard_stats():
         "top_campaign": top_campaign,
         "top_creator": top_creator,
         "total_sounds": total_sounds,
+        "total_videos_reported": total_videos_reported,
         "campaign_breakdown": campaign_breakdown,
         "ai_summary": ai_summary,
         "milestone_crossings": digest["milestone_crossings"],

@@ -373,13 +373,14 @@ async function load() {
 
   document.getElementById('content').innerHTML = `
     <div class="hero">
-      <div class="hero-title">Total Views</div>
+      <div class="hero-title">Views (Sampled Posts)</div>
       <div class="hero-views">${fmt(d.total_views)}</div>
-      <div class="hero-sub">Across ${d.active_campaigns} active campaign${d.active_campaigns !== 1 ? 's' : ''}</div>
+      <div class="hero-sub">From ${fmt(d.total_posts)} collected posts across ${d.active_campaigns} active campaign${d.active_campaigns !== 1 ? 's' : ''} — not the true platform total, see "Total Videos" below</div>
       <div class="hero-stats">
-        <div class="hero-stat"><div class="val">${fmt(d.total_posts)}</div><div class="lbl">Posts tracked</div></div>
+        <div class="hero-stat"><div class="val">${fmt(d.total_posts)}</div><div class="lbl">Posts collected</div></div>
+        <div class="hero-stat"><div class="val">${fmt(d.total_videos_reported || 0)}</div><div class="lbl">Total videos (TikTok-reported)</div></div>
         <div class="hero-stat"><div class="val">${fmt(d.total_creators)}</div><div class="lbl">Creators</div></div>
-        <div class="hero-stat"><div class="val">${fmt(d.views_7d)}</div><div class="lbl">Views this week</div></div>
+        <div class="hero-stat"><div class="val">${fmt(d.views_7d)}</div><div class="lbl">Views this week (sampled)</div></div>
         <div class="hero-stat"><div class="val">${fmt(d.posts_7d)}</div><div class="lbl">New posts this week</div></div>
         <div class="hero-stat"><div class="val">${fmt(d.total_sounds || 0)}</div><div class="lbl">Sounds tracked</div></div>
       </div>

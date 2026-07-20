@@ -60,7 +60,21 @@ def campaigns():
                 SELECT
                     c.*,
                     COUNT(DISTINCT p.post_id) as post_count,
-                    COALESCE(SUM(p.views), 0) as total_views
+                    COALESCE(SUM(p.views), 0) as total_views,
+                    -- Scalar subquery instead of joining sounds directly here:
+                    -- summing current_video_count in the same aggregate as the
+                    -- posts join would double/triple-count it once a sound has
+                    -- more than one post row. This is TikTok's own reported
+                    -- video count (true total), separate from total_views
+                    -- above (which is only a sum over the sampled posts we've
+                    -- actually collected) — see the same distinction made on
+                    -- the song detail page.
+                    (
+                        SELECT COALESCE(SUM(snd.current_video_count), 0)
+                        FROM sounds snd
+                        JOIN campaign_songs cs2 ON cs2.song_id = snd.song_id
+                        WHERE cs2.campaign_id = c.id AND snd.status = 'approved'
+                    ) as total_videos_reported
                 FROM campaigns c
                 LEFT JOIN campaign_songs cs ON cs.campaign_id = c.id
                 LEFT JOIN sounds snd ON snd.song_id = cs.song_id
@@ -323,6 +337,18 @@ def campaign_songs(campaign_id):
                     s.*,
                     COUNT(DISTINCT p.post_id) as post_count,
                     COALESCE(SUM(p.views), 0) as total_views,
+                    -- TikTok's own reported video count, summed across this
+                    -- song's approved sounds — a scalar subquery so it isn't
+                    -- multiplied by the posts join below. This is the TRUE
+                    -- total; total_views above is only from the sampled
+                    -- posts we've actually collected, which is necessarily
+                    -- much smaller — see song detail page for why the two
+                    -- numbers aren't (and can't be) the same scale.
+                    (
+                        SELECT COALESCE(SUM(snd2.current_video_count), 0)
+                        FROM sounds snd2
+                        WHERE snd2.song_id = s.id AND snd2.status = 'approved'
+                    ) as total_videos_reported,
                     COUNT(DISTINCT p.post_id) FILTER (
                         WHERE to_timestamp(p.created_at::bigint) >= NOW() - INTERVAL '7 days'
                     ) as posts_7d,
