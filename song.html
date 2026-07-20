@@ -86,6 +86,7 @@
   .stat-box .value { font-size: 28px; font-weight: 800; margin-top: 8px; letter-spacing: -0.5px; }
   .stat-box .value.accent { color: var(--accent); }
   .stat-box .value.warning { color: var(--warning); }
+  .stat-box .sub { font-size: 10px; color: var(--text-muted); margin-top: 4px; }
 
   .section-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
   .section-title { font-size: 15px; font-weight: 700; color: var(--text-primary); }
@@ -275,7 +276,7 @@
   </div>
 
   <div class="stat-row">
-    <div class="stat-box"><div class="label">Total Views</div><div class="value accent" id="stat-views">—</div></div>
+    <div class="stat-box"><div class="label">Views (Sampled Posts)</div><div class="value accent" id="stat-views">—</div><div class="sub" id="stat-views-sub"></div></div>
     <div class="stat-box stat-clickable" onclick="togglePanel('sounds-panel')" id="box-sounds">
       <div class="label">Sounds <span class="chevron" id="chev-sounds">↓</span></div>
       <div class="value" id="stat-sounds">—</div>
@@ -284,7 +285,7 @@
       <div class="label">Creators <span class="chevron" id="chev-creators">↓</span></div>
       <div class="value" id="stat-creators">—</div>
     </div>
-    <div class="stat-box"><div class="label">Posts Tracked</div><div class="value" id="stat-posts">—</div></div>
+    <div class="stat-box"><div class="label">Total Videos (All Sounds)</div><div class="value" id="stat-posts">—</div><div class="sub">TikTok-reported, all videos</div></div>
     <div class="stat-box stat-clickable" onclick="togglePanel('pending-panel')" id="box-pending">
       <div class="label">Pending Review <span class="chevron" id="chev-pending">↓</span></div>
       <div class="value" id="stat-pending">—</div>
@@ -495,9 +496,16 @@ async function load() {
   document.getElementById('song-title').textContent = song.name;
   document.getElementById('song-artist').textContent = song.artist || '';
   document.getElementById('stat-views').textContent = fmt(data.header_stats?.views || 0);
+  document.getElementById('stat-views-sub').textContent = `from ${fmt(data.header_stats?.post_count || 0)} collected posts`;
   document.getElementById('stat-sounds').textContent = sounds.length;
   document.getElementById('stat-creators').textContent = data.header_stats?.creator_count || 0;
-  document.getElementById('stat-posts').textContent = data.header_stats?.post_count || 0;
+  // Sum of each sound's true TikTok video count — matches the Sounds
+  // table's Total column, summed across all approved sounds — NOT the
+  // count of individual post records we've actually collected into our
+  // own posts table (which is a much smaller curated sample used for the
+  // grid/creators panel, not TikTok's real per-sound totals).
+  const totalVideosAcrossSounds = sounds.reduce((sum, s) => sum + (parseInt(s.current_video_count) || 0), 0);
+  document.getElementById('stat-posts').textContent = fmt(totalVideosAcrossSounds);
 
   const topPostsForCreators = data.top_posts || [];
   currentPage = 1;
