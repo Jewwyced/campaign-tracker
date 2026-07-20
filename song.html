@@ -158,19 +158,29 @@
   .pager-page { font-size: 12px; color: var(--text-secondary); font-weight: 600; min-width: 60px; text-align: center; }
 
   .sounds-section { margin-top: 8px; }
-  .sounds-list { display: flex; flex-direction: column; gap: 8px; }
-  .sound-row {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 14px 18px; border-radius: 12px;
-    border: 1px solid var(--border); background: white;
-    transition: border-color .15s, box-shadow .15s;
+  .sounds-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .sounds-table th {
+    text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .4px; color: var(--text-muted); padding: 8px 12px;
+    border-bottom: 2px solid var(--border); cursor: pointer; user-select: none;
+    white-space: nowrap;
   }
-  .sound-row:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(99,102,241,.08); }
-  .sound-name { font-size: 14px; font-weight: 600; }
-  .sound-author { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
-  .sound-count { font-size: 18px; font-weight: 800; color: var(--success); }
-  .sound-count-lbl { font-size: 11px; color: var(--text-muted); text-align: right; }
-  .delete-btn { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; padding: 6px 8px; border-radius: 8px; margin-left: 12px; }
+  .sounds-table th:hover { color: var(--accent); }
+  .sounds-table th.sorted { color: var(--text-primary); }
+  .sounds-table th.num, .sounds-table td.num { text-align: right; }
+  .sounds-table td { padding: 12px; border-bottom: 1px solid var(--border-light); vertical-align: middle; }
+  .sounds-table tr:hover td { background: var(--accent-light); }
+  .sound-rank { color: var(--text-muted); font-weight: 700; width: 28px; }
+  .sound-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+  .sound-author { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .sound-growth-pill {
+    display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 20px;
+  }
+  .sound-growth-pill.up { background: var(--success-bg); color: var(--success); }
+  .sound-growth-pill.down { background: var(--danger-bg); color: var(--danger); }
+  .sound-growth-pill.flat { background: var(--border-light); color: var(--text-muted); }
+  .sound-total { font-weight: 700; }
+  .delete-btn { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; padding: 6px 8px; border-radius: 8px; }
   .delete-btn:hover { background: var(--danger-bg); color: var(--danger); }
 
   /* Pending review panel — redesigned as thumbnail-led cards so sample
@@ -282,7 +292,22 @@
 
   <!-- Sounds panel -->
   <div class="expand-panel" id="sounds-panel">
-    <div class="sounds-list" id="sounds-list-inline"></div>
+    <div style="overflow-x:auto;">
+    <table class="sounds-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Sound</th>
+          <th class="num" id="th-velocity" onclick="setSoundSort('velocity')">24h % Growth</th>
+          <th class="num" id="th-24h" onclick="setSoundSort('posts_24h')">24 Hours</th>
+          <th class="num" id="th-7d" onclick="setSoundSort('posts_7d')">Last 7 Days</th>
+          <th class="num" id="th-total" onclick="setSoundSort('current_video_count')">Total</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="sounds-list-inline"></tbody>
+    </table>
+    </div>
   </div>
 
   <!-- Creators panel -->
@@ -297,7 +322,7 @@
     <div style="padding: 12px 18px; border-bottom: 1px solid var(--border-light); font-size: 12px; color: var(--text-muted);">
       These sounds were found by "Find New Sounds" but haven't been added to the canonical set yet. Review each one and approve or reject.
     </div>
-    <div class="sounds-list" id="pending-list-inline" style="padding: 12px 18px;"></div>
+    <div id="pending-list-inline" style="padding: 12px 18px;"></div>
   </div>
 
   <div id="ai-insight" style="display:none; background:#eef2ff; border:1px solid #c7d2fe; border-radius:12px; padding:16px 20px; margin-bottom:24px; font-size:14px; line-height:1.7; color:#3730a3;">
@@ -512,29 +537,60 @@ function togglePanel(panelId) {
   }
 }
 
+let soundSortField = 'posts_7d'; // default matches Chartex's own default sort
+let soundSortDir = 'desc';
+let lastSoundsData = [];
+
+function setSoundSort(field) {
+  if (soundSortField === field) {
+    soundSortDir = soundSortDir === 'desc' ? 'asc' : 'desc';
+  } else {
+    soundSortField = field;
+    soundSortDir = 'desc';
+  }
+  renderSoundsPanel(lastSoundsData);
+}
+
 function renderSoundsPanel(sounds) {
+  lastSoundsData = sounds;
   const el = document.getElementById('sounds-list-inline');
-  if (!sounds.length) { el.innerHTML = '<div class="empty">No sounds tracked yet.</div>'; return; }
-  const sorted = [...sounds].sort((a,b) => (parseFloat(b.velocity)||0) - (parseFloat(a.velocity)||0));
-  el.innerHTML = sorted.map(s => {
+  if (!sounds.length) { el.innerHTML = '<tr><td colspan="7" class="empty">No sounds tracked yet.</td></tr>'; return; }
+
+  // Header sort-state indicators
+  const headerMap = { velocity: 'th-velocity', posts_24h: 'th-24h', posts_7d: 'th-7d', current_video_count: 'th-total' };
+  Object.entries(headerMap).forEach(([field, id]) => {
+    const th = document.getElementById(id);
+    const base = th.textContent.replace(/[ ↓↑]+$/, '');
+    if (field === soundSortField) {
+      th.textContent = base + (soundSortDir === 'desc' ? ' ↓' : ' ↑');
+      th.classList.add('sorted');
+    } else {
+      th.textContent = base;
+      th.classList.remove('sorted');
+    }
+  });
+
+  const dir = soundSortDir === 'desc' ? -1 : 1;
+  const sorted = [...sounds].sort((a, b) => dir * ((parseFloat(a[soundSortField]) || 0) - (parseFloat(b[soundSortField]) || 0)));
+
+  el.innerHTML = sorted.map((s, i) => {
     const vel = parseFloat(s.velocity) || 0;
-    // Thresholds recalibrated for real 24h video-count growth (typically
-    // 0-6% for an active sound, per Chartex's own 24h % Growth column) —
-    // the old 0.4/0.2 cutoffs were tuned for the previous sampled-post
-    // ratio, which lived on a completely different, much larger scale.
-    const velEmoji = vel >= 0.03 ? '🔥' : vel >= 0.01 ? '📈' : vel > 0 ? '〰️' : '';
-    const velText = vel > 0 ? (vel * 100).toFixed(0) + '% daily velocity' : '';
-    return `<div class="sound-row">
-      <div style="flex:1;min-width:0;">
-        <div class="sound-name">${escapeHtml(s.title||'Unknown sound')} ${velEmoji}</div>
-        <div class="sound-author">${escapeHtml(s.author||'')}${velText ? ' · <span style="color:var(--success-text);font-weight:600;">' + velText + '</span>' : ''}</div>
-      </div>
-      <div style="text-align:right;margin-right:8px;">
-        <div class="sound-count">${fmt(s.current_video_count)}</div>
-        <div class="sound-count-lbl">videos · ${s.posts_7d||0} this week</div>
-      </div>
-      <button class="delete-btn" onclick="event.preventDefault();deleteSound(${s.id})">×</button>
-    </div>`;
+    const pillClass = vel > 0 ? 'up' : vel < 0 ? 'down' : 'flat';
+    const pillText = (vel * 100).toFixed(2) + '%';
+    const growth24h = parseInt(s.posts_24h) || 0;
+    const growth7d = parseInt(s.posts_7d) || 0;
+    return `<tr>
+      <td class="sound-rank">${i + 1}</td>
+      <td>
+        <div class="sound-name">${escapeHtml(s.title || 'Unknown sound')}</div>
+        <div class="sound-author">${escapeHtml(s.author || '')}</div>
+      </td>
+      <td class="num"><span class="sound-growth-pill ${pillClass}">${pillText}</span></td>
+      <td class="num">${fmt(growth24h)}</td>
+      <td class="num">${fmt(growth7d)}</td>
+      <td class="num sound-total">${fmt(s.current_video_count)}</td>
+      <td class="num"><button class="delete-btn" onclick="event.preventDefault();deleteSound(${s.id})">×</button></td>
+    </tr>`;
   }).join('');
 }
 
