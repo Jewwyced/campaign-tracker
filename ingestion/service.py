@@ -1060,6 +1060,61 @@ def discover_sounds_from_challenge(title, artist=""):
     return all_sounds
 
 
+def resurrect_unfingerprinted_rejects(db_conn_factory, song_id=None):
+    """One-time (or occasional) retroactive audit — see
+    HANDOFF_state_machine_migration.md. Real evidence found 7/19: a
+    genuinely large sound ('boldnfl', 6,318 videos, matching Chartex's
+    independent count almost exactly) was sitting status='inactive' with
+    fingerprint_status='unchecked' — meaning it was rejected by the OLD,
+    pre-fingerprint qualify logic (or a bug since fixed) and NEVER
+    actually audio-verified. Since get_or_create_sound's conflict
+    handling never touches `status` on an existing row, rediscovering
+    the same sound_id again does NOT give it a second look — once
+    inactive, always inactive, forever, regardless of how much the
+    matching/fingerprinting pipeline has improved since.
+
+    This finds every sound in exactly that state (rejected, never
+    actually fingerprinted) and resets it back into the real pipeline —
+    state='discovered', status='pending' — so process_sound_pipeline
+    picks it up and gives it a real, evidence-based decision under
+    today's logic instead of leaving it stuck on a pre-fingerprint call
+    forever. Confirmed real count for one song alone (Back Home): 131.
+
+    Scope with song_id for a single song, or leave None to resurrect
+    across every active-campaign song at once — call this deliberately,
+    not automatically, since it's a real batch state change (though a
+    safe, additive one: everything resurrected still goes through the
+    same real fingerprint check before anyone has to review it).
+    """
+    with db_conn_factory() as conn:
+        with conn.cursor() as c:
+            if song_id is not None:
+                c.execute("""
+                    UPDATE sounds
+                    SET status='pending', state='discovered'
+                    WHERE song_id=%s AND status='inactive' AND fingerprint_status='unchecked'
+                    RETURNING id
+                """, (song_id,))
+            else:
+                c.execute("""
+                    UPDATE sounds snd
+                    SET status='pending', state='discovered'
+                    FROM songs sg
+                    JOIN campaign_songs cs ON cs.song_id = sg.id
+                    JOIN campaigns camp ON camp.id = cs.campaign_id
+                    WHERE snd.song_id = sg.id
+                      AND camp.status = 'In Progress'
+                      AND snd.status='inactive' AND snd.fingerprint_status='unchecked'
+                    RETURNING snd.id
+                """)
+            resurrected = c.fetchall()
+        conn.commit()
+
+    _log(f"resurrect_unfingerprinted_rejects: {len(resurrected)} sounds reset to pending/discovered "
+         f"(song_id={song_id or 'ALL active-campaign songs'})")
+    return {"resurrected": len(resurrected)}
+
+
 # ── Discovery Engine: creator-graph traversal ───────────────────────────────
 # Tuning/safety constants — see determine_coverage_plan's pattern above for
 # why these live here by name instead of buried inline.

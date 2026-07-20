@@ -384,6 +384,21 @@ def force_refresh_sound(sound_db_id):
     return jsonify({"ok": True, **result})
 
 
+@refresh_bp.route("/api/refresh/resurrect_rejects", methods=["POST"])
+def resurrect_rejects():
+    """One-time retroactive audit (see HANDOFF_state_machine_migration.md
+    and resurrect_unfingerprinted_rejects's docstring). Finds sounds
+    rejected by the OLD pre-fingerprint pipeline that were never actually
+    audio-verified, and gives them a real, evidence-based second look
+    under today's pipeline. Optional ?song_id=<id> to scope to one song;
+    omit to run across every active-campaign song at once.
+    """
+    from ingestion import service as ingestion_service
+    song_id = request.args.get('song_id', type=int)
+    result = ingestion_service.resurrect_unfingerprinted_rejects(db, song_id=song_id)
+    return jsonify({"ok": True, **result})
+
+
 @refresh_bp.route("/api/refresh", methods=["POST"])
 def refresh():
     """Legacy endpoint — runs monitor scan only."""
