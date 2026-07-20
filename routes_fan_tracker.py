@@ -62,12 +62,39 @@ def refresh():
 def data():
     with db() as conn:
         with conn.cursor() as c:
-            c.execute("SELECT * FROM stats ORDER BY date DESC LIMIT 500")
-            stats = [dict(r) for r in c.fetchall()]
-            c.execute("SELECT * FROM posts ORDER BY date DESC, views DESC LIMIT 200")
-            posts = [dict(r) for r in c.fetchall()]
             c.execute("SELECT username FROM artists ORDER BY username")
             artists = [r["username"] for r in c.fetchall()]
+
+            if not artists:
+                return jsonify({"stats": [], "posts": [], "artists": []})
+
+            # IMPORTANT: `posts` (and to a lesser extent `stats`) are shared
+            # tables — campaigns and songs/sounds also write into `posts`,
+            # distinguished only by which foreign key is populated (see the
+            # table-ownership review flagged earlier in this project). An
+            # unfiltered "ORDER BY views DESC LIMIT 200" here was silently
+            # getting crowded out entirely by unrelated song/campaign posts
+            # with far higher view counts — meaning fan-tracked accounts'
+            # own posts never made it into the result at all, even though
+            # ingest_fan_account was writing them successfully. Filtering by
+            # username here scopes both queries strictly to accounts this
+            # feature actually tracks, so tracked accounts' data can never
+            # be pushed out by unrelated rows in the shared tables.
+            c.execute("""
+                SELECT * FROM stats
+                WHERE username = ANY(%s)
+                ORDER BY date DESC
+                LIMIT 500
+            """, (artists,))
+            stats = [dict(r) for r in c.fetchall()]
+
+            c.execute("""
+                SELECT * FROM posts
+                WHERE username = ANY(%s)
+                ORDER BY date DESC, views DESC
+                LIMIT 200
+            """, (artists,))
+            posts = [dict(r) for r in c.fetchall()]
     for row in stats:
         row["date"] = str(row["date"])
     for row in posts:
