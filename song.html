@@ -132,8 +132,30 @@
 
   .post-info { padding: 10px 12px 12px; }
   .post-username { font-size: 11px; font-weight: 600; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .post-views { font-size: 17px; font-weight: 800; margin-top: 3px; letter-spacing: -0.4px; color: var(--text-primary); }
-  .post-likes { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .post-caption { font-size: 11px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .post-stats-row { display: flex; align-items: center; gap: 10px; margin-top: 7px; flex-wrap: wrap; }
+  .post-stat { display: flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 700; color: var(--text-primary); }
+  .post-stat .icon { font-size: 11px; line-height: 1; opacity: .55; }
+  .post-stat.views { font-size: 13px; }
+
+  /* Pagination bar under the posts grid */
+  .pager-bar { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; margin-bottom: 40px; gap: 12px; flex-wrap: wrap; }
+  .pager-count { font-size: 12px; color: var(--text-muted); }
+  .pager-controls { display: flex; align-items: center; gap: 8px; }
+  .pager-select {
+    font-size: 12px; font-family: inherit; color: var(--text-secondary);
+    border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px;
+    background: white; cursor: pointer;
+  }
+  .pager-btn {
+    font-size: 12px; font-family: inherit; font-weight: 600; color: var(--text-secondary);
+    border: 1px solid var(--border); border-radius: 8px; padding: 5px 12px;
+    background: white; cursor: pointer;
+  }
+  .pager-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .pager-btn:disabled { opacity: .4; cursor: default; }
+  .pager-page { font-size: 12px; color: var(--text-secondary); font-weight: 600; min-width: 60px; text-align: center; }
 
   .sounds-section { margin-top: 8px; }
   .sounds-list { display: flex; flex-direction: column; gap: 8px; }
@@ -179,18 +201,6 @@
   .btn-preview:hover { background: var(--accent); color: white; }
   .btn-approve:disabled, .btn-reject:disabled, .btn-preview:disabled { opacity: .5; cursor: default; }
 
-  .pending-row.focused { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-light); }
-  .pending-row-wrap.removing { animation: fadeOutRow .2s ease forwards; }
-  @keyframes fadeOutRow { to { opacity: 0; transform: translateX(12px); max-height: 0; margin: 0; padding: 0; } }
-  .keyboard-hint {
-    font-size: 12px; color: var(--text-muted); padding: 8px 18px;
-    border-bottom: 1px solid var(--border-light); background: var(--bg);
-  }
-  .keyboard-hint kbd {
-    font-family: inherit; font-size: 11px; font-weight: 700; background: white;
-    border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; margin: 0 2px;
-  }
-
   .preview-strip { display: flex; gap: 8px; padding: 0 18px 14px; flex-wrap: wrap; }
   .preview-thumb {
     display: block; width: 72px; aspect-ratio: 9/16; border-radius: 8px;
@@ -232,7 +242,6 @@
     </div>
     <div class="header-actions">
       <button id="find-new-btn" class="btn-secondary" onclick="findNewSounds()">🔍 Find New Sounds</button>
-      <button id="fingerprint-btn" class="btn-secondary" onclick="fingerprintPending()">🎵 Fingerprint Pending</button>
       <button id="refresh-btn" class="btn-secondary" onclick="refreshSong()">↻ Refresh</button>
     </div>
   </div>
@@ -271,7 +280,6 @@
     <div style="padding: 12px 18px; border-bottom: 1px solid var(--border-light); font-size: 12px; color: var(--text-muted);">
       These sounds were found by "Find New Sounds" but haven't been added to the canonical set yet. Review each one and approve or reject.
     </div>
-    <div class="keyboard-hint"><kbd>A</kbd> approve · <kbd>R</kbd> reject · <kbd>↓</kbd>/<kbd>↑</kbd> move between rows — click a row first to focus it</div>
     <div class="sounds-list" id="pending-list-inline" style="padding: 12px 18px;"></div>
   </div>
 
@@ -282,14 +290,30 @@
 
   <div class="section-row">
     <div class="section-title">Posts</div>
-    <div class="filter-group">
-      <button class="filter-btn active" id="f-popular" onclick="setFilter('popular')">Most Popular</button>
-      <button class="filter-btn" id="f-recent" onclick="setFilter('recent')">Most Recent</button>
-      <button class="filter-btn" id="f-week" onclick="setFilter('week')">This Week</button>
-      <button class="filter-btn" id="f-today" onclick="setFilter('today')">48h</button>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div class="filter-group">
+        <button class="filter-btn active" id="f-popular" onclick="setFilter('popular')">Most Popular</button>
+        <button class="filter-btn" id="f-recent" onclick="setFilter('recent')">Most Recent</button>
+        <button class="filter-btn" id="f-week" onclick="setFilter('week')">This Week</button>
+        <button class="filter-btn" id="f-today" onclick="setFilter('today')">48h</button>
+      </div>
+      <select class="pager-select" id="page-size-select" onchange="setPageSize(this.value)">
+        <option value="20">20 / page</option>
+        <option value="40">40 / page</option>
+        <option value="80">80 / page</option>
+        <option value="150">150 / page</option>
+      </select>
     </div>
   </div>
   <div class="posts-grid" id="posts-grid"><div class="loading">Loading posts...</div></div>
+  <div class="pager-bar" id="pager-bar" style="display:none;">
+    <div class="pager-count" id="pager-count"></div>
+    <div class="pager-controls">
+      <button class="pager-btn" id="pager-prev" onclick="changePage(-1)">← Prev</button>
+      <div class="pager-page" id="pager-page"></div>
+      <button class="pager-btn" id="pager-next" onclick="changePage(1)">Next →</button>
+    </div>
+  </div>
 
 
 </main>
@@ -298,6 +322,8 @@
 const songId = window.location.pathname.split('/').pop();
 let allPosts = [];
 let currentFilter = 'popular';
+let pageSize = 20;
+let currentPage = 1;
 
 function fmt(n) {
   if (n == null || isNaN(n)) return '0';
@@ -333,16 +359,31 @@ function isThisWeek(ts) {
 
 function setFilter(filter) {
   currentFilter = filter;
+  currentPage = 1;
   ['popular','recent','week','today'].forEach(f => {
     document.getElementById(`f-${f}`).className = 'filter-btn' + (f === filter ? ' active' : '');
   });
   renderPostsGrid();
 }
 
+function setPageSize(val) {
+  pageSize = parseInt(val) || 20;
+  currentPage = 1;
+  renderPostsGrid();
+}
+
+function changePage(delta) {
+  currentPage += delta;
+  renderPostsGrid();
+  document.querySelector('.section-row').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function renderPostsGrid() {
   const grid = document.getElementById('posts-grid');
+  const pagerBar = document.getElementById('pager-bar');
   if (!allPosts.length) {
     grid.innerHTML = '<div class="empty">No posts yet. Posts will appear after the next refresh.</div>';
+    pagerBar.style.display = 'none';
     return;
   }
 
@@ -365,10 +406,18 @@ function renderPostsGrid() {
 
   if (!posts.length) {
     grid.innerHTML = '<div class="no-results"><strong>No posts found</strong>Try a different time period.</div>';
+    pagerBar.style.display = 'none';
     return;
   }
 
-  grid.innerHTML = posts.slice(0,20).map(p => `
+  // Pagination over the full filtered/sorted set
+  const totalPages = Math.max(1, Math.ceil(posts.length / pageSize));
+  if (currentPage > totalPages) currentPage = totalPages;
+  if (currentPage < 1) currentPage = 1;
+  const start = (currentPage - 1) * pageSize;
+  const pagePosts = posts.slice(start, start + pageSize);
+
+  grid.innerHTML = pagePosts.map(p => `
     <a class="post-card" href="https://tiktok.com/@${escapeHtml(p.username)}/video/${escapeHtml(p.post_id)}" target="_blank">
       <div class="post-thumb-wrap">
         ${p.thumbnail ? `<img class="post-thumb" src="${escapeHtml(p.thumbnail)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">` : ''}
@@ -378,11 +427,24 @@ function renderPostsGrid() {
       </div>
       <div class="post-info">
         <div class="post-username">@${escapeHtml(p.username)}</div>
-        <div class="post-views">${fmt(p.views)}</div>
-        <div class="post-likes">${fmt(p.likes)} likes</div>
+        ${p.description ? `<div class="post-caption" title="${escapeHtml(p.description)}">${escapeHtml(p.description)}</div>` : ''}
+        <div class="post-stats-row">
+          <div class="post-stat views"><span class="icon">▶</span>${fmt(p.views)}</div>
+          <div class="post-stat"><span class="icon">♥</span>${fmt(p.likes)}</div>
+          <div class="post-stat"><span class="icon">💬</span>${fmt(p.comments)}</div>
+          <div class="post-stat"><span class="icon">🔖</span>${fmt(p.saves)}</div>
+        </div>
       </div>
     </a>
   `).join('');
+
+  // Pager bar
+  pagerBar.style.display = 'flex';
+  document.getElementById('pager-count').textContent =
+    `${start + 1}–${Math.min(start + pageSize, posts.length)} of ${fmt(posts.length)} posts`;
+  document.getElementById('pager-page').textContent = `Page ${currentPage} of ${totalPages}`;
+  document.getElementById('pager-prev').disabled = currentPage <= 1;
+  document.getElementById('pager-next').disabled = currentPage >= totalPages;
 }
 
 async function load() {
@@ -401,6 +463,7 @@ async function load() {
   document.getElementById('stat-posts').textContent = data.header_stats?.post_count || 0;
 
   allPosts = data.top_posts || [];
+  currentPage = 1;
   renderPostsGrid();
 
   fetch('/api/songs/' + songId + '/insight')
@@ -484,7 +547,7 @@ function renderCreatorsPanel(posts) {
 
 async function loadPendingReview() {
   try {
-    const res = await fetch(`/api/songs/${songId}/pending_review_v2`);
+    const res = await fetch(`/api/songs/${songId}/pending_review`);
     const pending = res.ok ? await res.json() : [];
     document.getElementById('stat-pending').textContent = pending.length;
     document.getElementById('box-pending').classList.toggle('has-pending', pending.length > 0);
@@ -492,23 +555,6 @@ async function loadPendingReview() {
   } catch (e) {
     document.getElementById('stat-pending').textContent = '0';
   }
-}
-
-let _pendingFocusIndex = -1;
-
-function _recommendationBadge(s) {
-  if (s.recommendation === 'approve') {
-    return `<span class="pending-source-badge" style="background:var(--success-bg);color:var(--success);">✓ Approve — matches ${escapeHtml(s.fingerprint_title || '')} ${s.fingerprint_artist ? 'by ' + escapeHtml(s.fingerprint_artist) : ''} (${s.fingerprint_confidence}%)</span>`;
-  }
-  if (s.recommendation === 'reject') {
-    return `<span class="pending-source-badge" style="background:#fee2e2;color:#dc2626;">✗ Reject — identified as ${escapeHtml(s.fingerprint_title || '')} ${s.fingerprint_artist ? 'by ' + escapeHtml(s.fingerprint_artist) : ''} (${s.fingerprint_confidence}%)</span>`;
-  }
-  return `<span class="pending-source-badge" style="background:var(--warning-bg);color:var(--warning);">? Needs Review — audio check inconclusive</span>`;
-}
-
-function _tiktokSoundUrl(s) {
-  const slug = (s.title || 'sound').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-  return `https://www.tiktok.com/music/${slug}-${s.sound_id}`;
 }
 
 function renderPendingPanel(pending) {
@@ -519,54 +565,33 @@ function renderPendingPanel(pending) {
   }
   el.innerHTML = pending.map(s => `
     <div class="pending-row-wrap" id="pending-wrap-${s.id}">
-      <div class="pending-row" id="pending-row-${s.id}" tabindex="0" onclick="focusPendingRow(${s.id})">
+      <div class="pending-row" id="pending-row-${s.id}">
         <div class="pending-info">
-          <div class="pending-title">${escapeHtml(s.title || 'Unknown sound')}<span class="pending-source-badge">${escapeHtml(s.discovered_via || 'unknown')}</span>${_recommendationBadge(s)}</div>
-          <div class="pending-meta">${escapeHtml(s.author || '')} · ${fmt(s.current_video_count)} videos · <a href="${_tiktokSoundUrl(s)}" target="_blank" onclick="event.stopPropagation();" style="color:var(--accent);">🔗 View sound on TikTok</a></div>
+          <div class="pending-title">${escapeHtml(s.title || 'Unknown sound')}<span class="pending-source-badge">${escapeHtml(s.discovered_via || 'unknown')}</span>${s.likely_match ? '<span class="pending-source-badge" style="background:var(--success-bg);color:var(--success);">✓ likely match</span>' : '<span class="pending-source-badge" style="background:var(--warning-bg);color:var(--warning);">⚠ needs review</span>'}</div>
+          <div class="pending-meta">${escapeHtml(s.author || '')} · ${fmt(s.current_video_count)} videos</div>
         </div>
         <div class="pending-actions">
-          <button class="btn-approve" onclick="event.stopPropagation();approvePending(${s.id})">Approve</button>
-          <button class="btn-reject" onclick="event.stopPropagation();rejectPending(${s.id})">Reject</button>
+          <button class="btn-preview" id="preview-btn-${s.id}" onclick="previewSound(${s.id})">▶ Preview videos</button>
+          <button class="btn-approve" onclick="approvePending(${s.id})">Approve</button>
+          <button class="btn-reject" onclick="rejectPending(${s.id})">Reject</button>
         </div>
       </div>
-      <div id="preview-strip-${s.id}"><div class="preview-loading">Loading preview...</div></div>
+      <div id="preview-strip-${s.id}"></div>
     </div>
   `).join('');
-
-  // Auto-load previews, but THROTTLED — not all N at once. Firing dozens
-  // of simultaneous requests at TikLive risks rate limits or just
-  // overwhelming things, which is exactly why some rows were getting
-  // stuck on "Loading preview..." forever with no fallback. This queues
-  // them with a max of 4 in flight at a time, so it's still automatic
-  // (no click required) but doesn't flood the API.
-  _queuePreviewLoads(pending.map(s => s.id));
-
-  _pendingFocusIndex = -1;
 }
 
-const _PREVIEW_CONCURRENCY = 4;
-
-function _queuePreviewLoads(soundIds) {
-  let next = 0;
-  function runNext() {
-    if (next >= soundIds.length) return;
-    const id = soundIds[next++];
-    loadPreviewInto(id).finally(runNext);
-  }
-  for (let i = 0; i < _PREVIEW_CONCURRENCY; i++) runNext();
-}
-
-async function loadPreviewInto(soundDbId) {
+async function previewSound(soundDbId) {
+  const btn = document.getElementById(`preview-btn-${soundDbId}`);
   const strip = document.getElementById(`preview-strip-${soundDbId}`);
-  if (!strip) return;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 12000);
+  btn.disabled = true;
+  btn.textContent = 'Loading...';
+  strip.innerHTML = '<div class="preview-loading">Fetching sample videos...</div>';
   try {
-    const res = await fetch(`/api/sounds/${soundDbId}/preview_posts`, { signal: controller.signal });
-    clearTimeout(timeoutId);
+    const res = await fetch(`/api/sounds/${soundDbId}/preview_posts`);
     const posts = res.ok ? await res.json() : [];
     if (!posts.length) {
-      strip.innerHTML = `<div class="preview-loading">No videos found for this sound right now. <button class="btn-preview" style="margin-left:6px;" onclick="loadPreviewInto(${soundDbId})">Retry</button></div>`;
+      strip.innerHTML = '<div class="preview-loading">No videos found for this sound right now.</div>';
     } else {
       strip.innerHTML = '<div class="preview-strip">' + posts.map(p => `
         <a class="preview-thumb" href="https://tiktok.com/@${escapeHtml(p.username)}/video/${escapeHtml(p.post_id)}" target="_blank" title="@${escapeHtml(p.username)}">
@@ -576,191 +601,50 @@ async function loadPreviewInto(soundDbId) {
       `).join('') + '</div>';
     }
   } catch (e) {
-    clearTimeout(timeoutId);
-    const reason = e.name === 'AbortError' ? 'Timed out' : 'Could not load';
-    strip.innerHTML = `<div class="preview-loading">${reason} — <button class="btn-preview" style="margin-left:6px;" onclick="loadPreviewInto(${soundDbId})">Retry</button></div>`;
+    strip.innerHTML = '<div class="preview-loading">Could not load preview videos.</div>';
   }
-}
-
-function focusPendingRow(soundDbId) {
-  document.querySelectorAll('.pending-row.focused').forEach(r => r.classList.remove('focused'));
-  const row = document.getElementById(`pending-row-${soundDbId}`);
-  if (row) {
-    row.classList.add('focused');
-    const rows = Array.from(document.querySelectorAll('.pending-row'));
-    _pendingFocusIndex = rows.indexOf(row);
-  }
-}
-
-function _focusPendingByIndex(i) {
-  const rows = Array.from(document.querySelectorAll('.pending-row'));
-  if (!rows.length) return;
-  _pendingFocusIndex = Math.max(0, Math.min(i, rows.length - 1));
-  document.querySelectorAll('.pending-row.focused').forEach(r => r.classList.remove('focused'));
-  const row = rows[_pendingFocusIndex];
-  row.classList.add('focused');
-  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
-}
-
-document.addEventListener('keydown', (e) => {
-  const panel = document.getElementById('pending-panel');
-  if (!panel || !panel.classList.contains('open')) return;
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
-  const rows = Array.from(document.querySelectorAll('.pending-row'));
-  if (!rows.length) return;
-
-  if (e.key === 'ArrowDown') {
-    e.preventDefault();
-    _focusPendingByIndex(_pendingFocusIndex < 0 ? 0 : _pendingFocusIndex + 1);
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault();
-    _focusPendingByIndex(_pendingFocusIndex < 0 ? 0 : _pendingFocusIndex - 1);
-  } else if ((e.key === 'a' || e.key === 'A') && _pendingFocusIndex >= 0) {
-    e.preventDefault();
-    const id = rows[_pendingFocusIndex].id.replace('pending-row-', '');
-    approvePending(parseInt(id));
-  } else if ((e.key === 'r' || e.key === 'R') && _pendingFocusIndex >= 0) {
-    e.preventDefault();
-    const id = rows[_pendingFocusIndex].id.replace('pending-row-', '');
-    rejectPending(parseInt(id));
-  }
-});
-
-function _removePendingRowOptimistically(soundDbId) {
-  const wrap = document.getElementById(`pending-wrap-${soundDbId}`);
-  const statEl = document.getElementById('stat-pending');
-  const currentCount = parseInt(statEl.textContent) || 0;
-  if (currentCount > 0) statEl.textContent = currentCount - 1;
-  document.getElementById('box-pending').classList.toggle('has-pending', currentCount - 1 > 0);
-
-  if (wrap) {
-    wrap.classList.add('removing');
-    setTimeout(() => wrap.remove(), 200);
-  }
-
-  // Move keyboard focus to the next row automatically so you can keep
-  // going without re-clicking.
-  setTimeout(() => {
-    const rows = document.querySelectorAll('.pending-row');
-    if (rows.length && _pendingFocusIndex >= 0) {
-      _focusPendingByIndex(Math.min(_pendingFocusIndex, rows.length - 1));
-    }
-  }, 210);
-}
-
-function _showActionError(message) {
-  // A real, visible failure indicator — previously a failed approve/reject
-  // just silently reloaded the list with zero feedback, meaning a failed
-  // click and a successful one looked identical unless you checked the
-  // database by hand. Confirmed real 7/19: a genuine silent failure on
-  // an approve click left a sound un-approved with no indication anything
-  // went wrong.
-  let toast = document.getElementById('action-error-toast');
-  if (!toast) {
-    toast = document.createElement('div');
-    toast.id = 'action-error-toast';
-    toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);' +
-      'background:#dc2626;color:white;padding:12px 20px;border-radius:8px;' +
-      'font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.2);';
-    document.body.appendChild(toast);
-  }
-  toast.textContent = message;
-  toast.style.display = 'block';
-  clearTimeout(toast._hideTimer);
-  toast._hideTimer = setTimeout(() => { toast.style.display = 'none'; }, 5000);
+  btn.disabled = false;
+  btn.textContent = '▶ Preview videos';
 }
 
 async function approvePending(soundDbId) {
-  _removePendingRowOptimistically(soundDbId);
+  const row = document.getElementById(`pending-row-${soundDbId}`);
+  const buttons = row ? row.querySelectorAll('button') : [];
+  buttons.forEach(b => b.disabled = true);
   try {
-    const res = await fetch(`/api/sounds/${soundDbId}/approve_v2`, { method: 'POST' });
-    if (!res.ok) throw new Error('approve failed');
-    // Lightweight background refresh of the approved sounds list and
-    // headline stats only — NOT the full load(), which was re-fetching
-    // the entire page (posts grid, creators panel, everything) on every
-    // single approve click and was the main source of the lag.
-    loadPendingReview();
-    refreshSoundsAndStatsOnly();
+    await fetch(`/api/sounds/${soundDbId}/approve`, { method: 'POST' });
+    await load();
   } catch (e) {
-    // Revert: reload the real pending list from the server so the row
-    // comes back if the approve actually failed server-side — AND now
-    // tell you clearly that it failed, instead of silently.
-    _showActionError('⚠ Approve failed — the sound was NOT approved. Try again.');
-    loadPendingReview();
+    buttons.forEach(b => b.disabled = false);
   }
 }
 
 async function rejectPending(soundDbId) {
-  _removePendingRowOptimistically(soundDbId);
+  const row = document.getElementById(`pending-row-${soundDbId}`);
+  const buttons = row ? row.querySelectorAll('button') : [];
+  buttons.forEach(b => b.disabled = true);
   try {
-    const res = await fetch(`/api/sounds/${soundDbId}/reject_v2`, { method: 'POST' });
-    if (!res.ok) throw new Error('reject failed');
+    await fetch(`/api/sounds/${soundDbId}/reject`, { method: 'POST' });
+    await loadPendingReview();
   } catch (e) {
-    _showActionError('⚠ Reject failed — the sound was NOT rejected. Try again.');
-    loadPendingReview();
+    buttons.forEach(b => b.disabled = false);
   }
-}
-
-async function refreshSoundsAndStatsOnly() {
-  try {
-    const res = await fetch(`/api/songs/${songId}/detail`);
-    if (!res.ok) return;
-    const data = await res.json();
-    const sounds = data.sounds || [];
-    document.getElementById('stat-views').textContent = fmt(data.header_stats?.views || 0);
-    document.getElementById('stat-sounds').textContent = sounds.length;
-    document.getElementById('stat-creators').textContent = data.header_stats?.creator_count || 0;
-    document.getElementById('stat-posts').textContent = data.header_stats?.post_count || 0;
-    renderSoundsPanel(sounds);
-  } catch (e) {
-    // Non-fatal — headline stats will just catch up on next full load().
-  }
-}
-
-async function fingerprintPending() {
-  // Manual "give it another push" button — mostly useful for continuing
-  // a large backlog find_new_sounds_v2 didn't fully drain in one call.
-  const btn = document.getElementById('fingerprint-btn');
-  btn.textContent = 'Fingerprinting...';
-  btn.disabled = true;
-  try {
-    const res = await fetch(`/api/refresh/process_pipeline?song_id=${songId}`, { method: 'POST' });
-    const data = await res.json();
-    if (data.ok) {
-      btn.textContent = `✓ Checked ${data.fingerprinted}`;
-      await loadPendingReview();
-    } else {
-      btn.textContent = data.reason === 'pipeline already running'
-        ? '⏳ Already running...' : '🎵 Fingerprint Pending';
-    }
-  } catch (e) {
-    btn.textContent = '🎵 Fingerprint Pending';
-  }
-  setTimeout(function() {
-    btn.textContent = '🎵 Fingerprint Pending';
-    btn.disabled = false;
-  }, 2500);
 }
 
 async function findNewSounds() {
-  // Discovery AND fingerprinting now happen together in one backend call
-  // (find_new_sounds_v2 -> discover_song_sounds + process_sound_pipeline)
-  // — no more separate client-side chaining. This call still only gets
-  // through what fits in ~25 seconds of fingerprinting, so a large batch
-  // needs a short continuation loop after — see below.
   const btn = document.getElementById('find-new-btn');
-  btn.textContent = 'Searching + verifying...';
+  btn.textContent = 'Searching...';
   btn.disabled = true;
   try {
-    const res = await fetch(`/api/songs/${songId}/find_new_sounds_v2`, { method: 'POST' });
+    const res = await fetch(`/api/songs/${songId}/find_new_sounds`, { method: 'POST' });
     const data = await res.json();
     if (data.ok) {
+      const found = (data.qualify && data.qualify.awaiting_review) || 0;
+      btn.textContent = found > 0 ? `✓ Found ${found} new` : '✓ Nothing new';
       await loadPendingReview();
-      if (!document.getElementById('pending-panel').classList.contains('open')) {
+      if (found > 0 && !document.getElementById('pending-panel').classList.contains('open')) {
         togglePanel('pending-panel');
       }
-      await continueFingerprintingUntilDone(btn, data.pipeline);
     } else {
       btn.textContent = '🔍 Find New Sounds';
     }
@@ -771,50 +655,6 @@ async function findNewSounds() {
     btn.textContent = '🔍 Find New Sounds';
     btn.disabled = false;
   }, 2500);
-}
-
-async function continueFingerprintingUntilDone(btn, firstPipelineResult) {
-  // REDESIGNED 7/20 — used to try to exhaustively drain the WHOLE batch
-  // on this page (up to 15 loops), which meant genuinely waiting minutes
-  // for a big discovery run (searches now go much deeper, batches of
-  // 100+ are common) — a bad experience, and not even necessary: the
-  // hourly cron already drains the SAME queue automatically in the
-  // background regardless of whether anyone's watching this page.
-  //
-  // New behavior: give a QUICK preview (a few loops, ~1 minute max) so
-  // you see real results right away, then clearly hand off to the
-  // background system instead of implying you need to wait for
-  // everything — you don't, it finishes on its own.
-  const QUICK_PREVIEW_LOOPS = 3;
-  let totalChecked = firstPipelineResult.fingerprinted + firstPipelineResult.bulk_rejected;
-  let lastPulled = firstPipelineResult.discovered_pulled;
-
-  for (let i = 0; i < QUICK_PREVIEW_LOOPS && lastPulled >= 40; i++) {
-    btn.textContent = `Verifying audio... ${totalChecked} checked so far`;
-    let data;
-    try {
-      const res = await fetch(`/api/refresh/process_pipeline?song_id=${songId}`, { method: 'POST' });
-      data = await res.json();
-    } catch (e) {
-      break;
-    }
-    if (!data.ok) break;
-    totalChecked += data.fingerprinted + data.bulk_rejected;
-    lastPulled = data.discovered_pulled;
-    await loadPendingReview();
-    if (data.discovered_pulled === 0) break;
-  }
-
-  if (lastPulled >= 40) {
-    // There's more than a quick preview can reasonably show — say so
-    // plainly instead of silently stopping, and make clear no action is
-    // needed: the hourly background job picks up exactly where this left
-    // off, automatically, on its own schedule.
-    btn.textContent = `✓ ${totalChecked} verified so far — rest completing automatically in the background`;
-  } else {
-    btn.textContent = `✓ ${totalChecked} verified`;
-  }
-  await loadPendingReview();
 }
 
 async function refreshSong() {
