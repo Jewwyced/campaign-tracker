@@ -173,14 +173,46 @@
   .delete-btn { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; padding: 6px 8px; border-radius: 8px; margin-left: 12px; }
   .delete-btn:hover { background: var(--danger-bg); color: var(--danger); }
 
-  /* Pending review panel */
-  .pending-row {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 14px 18px; border-radius: 12px;
+  /* Pending review panel — redesigned as thumbnail-led cards so sample
+     videos are visible immediately (no click needed) and easy to scan */
+  .pending-card {
+    display: flex; align-items: stretch; gap: 14px;
+    padding: 14px; border-radius: 14px;
     border: 1px solid var(--border); background: white;
+    transition: border-color .15s, box-shadow .15s;
   }
-  .pending-row + .pending-row { margin-top: 8px; }
-  .pending-info { flex: 1; min-width: 0; padding-right: 12px; }
+  .pending-card:hover { border-color: var(--accent); box-shadow: 0 4px 14px rgba(99,102,241,.10); }
+  .pending-card + .pending-card { margin-top: 10px; }
+  .pending-card.likely { border-left: 4px solid var(--success); }
+  .pending-card.needs-review { border-left: 4px solid var(--warning); }
+
+  .pending-thumbs {
+    display: flex; gap: 5px; flex-shrink: 0; align-items: center;
+  }
+  .pending-thumb {
+    display: block; width: 58px; aspect-ratio: 9/16; border-radius: 8px;
+    overflow: hidden; background: var(--border-light); text-decoration: none;
+    position: relative; border: 1px solid var(--border); flex-shrink: 0;
+  }
+  .pending-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .pending-thumb .pending-thumb-views {
+    position: absolute; bottom: 2px; left: 2px; right: 2px;
+    font-size: 8px; font-weight: 700; color: white;
+    background: rgba(0,0,0,.6); border-radius: 3px; padding: 1px 3px; text-align: center;
+  }
+  .pending-thumb-empty {
+    width: 58px; aspect-ratio: 9/16; border-radius: 8px; flex-shrink: 0;
+    background: var(--border-light); display: flex; align-items: center; justify-content: center;
+    font-size: 16px; color: var(--text-muted);
+  }
+  .pending-thumb-skeleton {
+    width: 58px; aspect-ratio: 9/16; border-radius: 8px; flex-shrink: 0;
+    background: linear-gradient(90deg, var(--border-light) 25%, var(--border) 50%, var(--border-light) 75%);
+    background-size: 200% 100%; animation: shimmer 1.4s infinite;
+  }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  .pending-info { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
   .pending-title { font-size: 14px; font-weight: 600; }
   .pending-meta { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
   .pending-source-badge {
@@ -188,32 +220,17 @@
     letter-spacing: .4px; padding: 2px 7px; border-radius: 5px;
     background: var(--border-light); color: var(--text-secondary); margin-left: 6px;
   }
-  .pending-actions { display: flex; gap: 6px; flex-shrink: 0; }
-  .btn-approve, .btn-reject, .btn-preview {
-    font-size: 12px; font-family: inherit; font-weight: 600;
-    padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer;
+  .pending-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; justify-content: center; }
+  .btn-approve, .btn-reject {
+    font-size: 13px; font-family: inherit; font-weight: 700;
+    padding: 9px 18px; border-radius: 9px; border: none; cursor: pointer;
+    min-width: 90px;
   }
   .btn-approve { background: var(--success-bg); color: var(--success); }
   .btn-approve:hover { background: var(--success); color: white; }
   .btn-reject { background: var(--danger-bg); color: var(--danger); }
   .btn-reject:hover { background: var(--danger); color: white; }
-  .btn-preview { background: var(--accent-light); color: var(--accent); }
-  .btn-preview:hover { background: var(--accent); color: white; }
-  .btn-approve:disabled, .btn-reject:disabled, .btn-preview:disabled { opacity: .5; cursor: default; }
-
-  .preview-strip { display: flex; gap: 8px; padding: 0 18px 14px; flex-wrap: wrap; }
-  .preview-thumb {
-    display: block; width: 72px; aspect-ratio: 9/16; border-radius: 8px;
-    overflow: hidden; background: var(--border-light); text-decoration: none;
-    position: relative; border: 1px solid var(--border);
-  }
-  .preview-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .preview-thumb .preview-views {
-    position: absolute; bottom: 3px; left: 3px; right: 3px;
-    font-size: 9px; font-weight: 700; color: white;
-    background: rgba(0,0,0,.6); border-radius: 4px; padding: 1px 4px; text-align: center;
-  }
-  .preview-loading { font-size: 12px; color: var(--text-muted); padding: 8px 18px; }
+  .btn-approve:disabled, .btn-reject:disabled { opacity: .5; cursor: default; }
 
   .empty { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 14px; line-height: 1.8; }
   .loading { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 14px; }
@@ -568,47 +585,60 @@ function renderPendingPanel(pending) {
     return;
   }
   el.innerHTML = pending.map(s => `
-    <div class="pending-row-wrap" id="pending-wrap-${s.id}">
-      <div class="pending-row" id="pending-row-${s.id}">
-        <div class="pending-info">
-          <div class="pending-title">${escapeHtml(s.title || 'Unknown sound')}<span class="pending-source-badge">${escapeHtml(s.discovered_via || 'unknown')}</span>${s.likely_match ? '<span class="pending-source-badge" style="background:var(--success-bg);color:var(--success);">✓ likely match</span>' : '<span class="pending-source-badge" style="background:var(--warning-bg);color:var(--warning);">⚠ needs review</span>'}</div>
-          <div class="pending-meta">${escapeHtml(s.author || '')} · ${fmt(s.current_video_count)} videos</div>
-        </div>
-        <div class="pending-actions">
-          <button class="btn-preview" id="preview-btn-${s.id}" onclick="previewSound(${s.id})">▶ Preview videos</button>
-          <button class="btn-approve" onclick="approvePending(${s.id})">Approve</button>
-          <button class="btn-reject" onclick="rejectPending(${s.id})">Reject</button>
-        </div>
+    <div class="pending-card ${s.likely_match ? 'likely' : 'needs-review'}" id="pending-row-${s.id}">
+      <div class="pending-thumbs" id="pending-thumbs-${s.id}">
+        <div class="pending-thumb-skeleton"></div>
+        <div class="pending-thumb-skeleton"></div>
+        <div class="pending-thumb-skeleton"></div>
       </div>
-      <div id="preview-strip-${s.id}"></div>
+      <div class="pending-info">
+        <div class="pending-title">${escapeHtml(s.title || 'Unknown sound')}<span class="pending-source-badge">${escapeHtml(s.discovered_via || 'unknown')}</span>${s.likely_match ? '<span class="pending-source-badge" style="background:var(--success-bg);color:var(--success);">✓ likely match</span>' : '<span class="pending-source-badge" style="background:var(--warning-bg);color:var(--warning);">⚠ needs review</span>'}</div>
+        <div class="pending-meta">${escapeHtml(s.author || '')} · ${fmt(s.current_video_count)} videos</div>
+      </div>
+      <div class="pending-actions">
+        <button class="btn-approve" onclick="approvePending(${s.id})">✓ Approve</button>
+        <button class="btn-reject" onclick="rejectPending(${s.id})">✕ Reject</button>
+      </div>
     </div>
   `).join('');
+
+  // Lazy-load thumbnails via IntersectionObserver instead of firing all
+  // requests at once — with 192 pending sounds, requesting every preview
+  // simultaneously would spike TikAPI usage and feel janky. Each card's
+  // thumbnails load once, right as it scrolls near the viewport, so the
+  // page stays smooth and nothing loads for cards you never scroll to.
+  pending.forEach(s => _pendingObserver.observe(document.getElementById(`pending-thumbs-${s.id}`)));
 }
 
-async function previewSound(soundDbId) {
-  const btn = document.getElementById(`preview-btn-${soundDbId}`);
-  const strip = document.getElementById(`preview-strip-${soundDbId}`);
-  btn.disabled = true;
-  btn.textContent = 'Loading...';
-  strip.innerHTML = '<div class="preview-loading">Fetching sample videos...</div>';
+const _pendingObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const soundDbId = entry.target.id.replace('pending-thumbs-', '');
+      loadPendingThumbs(soundDbId);
+      _pendingObserver.unobserve(entry.target);
+    }
+  });
+}, { rootMargin: '400px 0px' }); // start loading a bit before it's actually on screen
+
+async function loadPendingThumbs(soundDbId) {
+  const el = document.getElementById(`pending-thumbs-${soundDbId}`);
+  if (!el) return;
   try {
     const res = await fetch(`/api/sounds/${soundDbId}/preview_posts`);
     const posts = res.ok ? await res.json() : [];
     if (!posts.length) {
-      strip.innerHTML = '<div class="preview-loading">No videos found for this sound right now.</div>';
-    } else {
-      strip.innerHTML = '<div class="preview-strip">' + posts.map(p => `
-        <a class="preview-thumb" href="https://tiktok.com/@${escapeHtml(p.username)}/video/${escapeHtml(p.post_id)}" target="_blank" title="@${escapeHtml(p.username)}">
-          ${p.thumbnail ? `<img src="${escapeHtml(p.thumbnail)}" loading="lazy">` : ''}
-          <div class="preview-views">${fmt(p.views)}</div>
-        </a>
-      `).join('') + '</div>';
+      el.innerHTML = '<div class="pending-thumb-empty">—</div>';
+      return;
     }
+    el.innerHTML = posts.slice(0, 3).map(p => `
+      <a class="pending-thumb" href="https://tiktok.com/@${escapeHtml(p.username)}/video/${escapeHtml(p.post_id)}" target="_blank" title="@${escapeHtml(p.username)}">
+        ${p.thumbnail ? `<img src="${escapeHtml(p.thumbnail)}" loading="lazy">` : ''}
+        <div class="pending-thumb-views">${fmt(p.views)}</div>
+      </a>
+    `).join('');
   } catch (e) {
-    strip.innerHTML = '<div class="preview-loading">Could not load preview videos.</div>';
+    el.innerHTML = '<div class="pending-thumb-empty">?</div>';
   }
-  btn.disabled = false;
-  btn.textContent = '▶ Preview videos';
 }
 
 async function approvePending(soundDbId) {
