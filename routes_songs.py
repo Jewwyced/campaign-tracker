@@ -358,9 +358,25 @@ def approve_sound_v2(sound_db_id):
     correctly informed too, or a sound approved here would be invisible
     to everything that refreshes/displays canonical sounds today.
 
+    FIXED 7/19 — REAL BUG, not just a UI issue: this used to call the
+    slow, network-bound ingest_sound() SYNCHRONOUSLY inside this same
+    request. Confirmed in production: a click's request never completed
+    server-side at all (no log line for it), while a later retry
+    succeeded cleanly — consistent with the slow second half (real
+    TikLive API calls, sometimes multiple pages for Tier A/B sounds)
+    causing the whole request to hang/time out/drop, not a logic bug in
+    either half on its own. Same class of problem discovery had earlier
+    tonight, same fix: split fast-and-reliable from slow-and-network-
+    bound. This route now ONLY does the DB update and returns
+    immediately. The actual post-fetching happens through the existing,
+    already-safe refresh_approved_sounds_for_song path (via the Refresh
+    button or the hourly monitor cron) — confirmed safe because that
+    query is `ORDER BY last_ingested_at ASC NULLS FIRST`, so a freshly-
+    approved sound (last_ingested_at IS NULL) is always first in line,
+    not buried behind other approved sounds.
+
     NOT CALLED BY song.html YET — see pending_review_v2.
     """
-    from ingestion import service as ingestion_service
     with db() as conn:
         with conn.cursor() as c:
             c.execute("SELECT id, song_id, sound_id FROM sounds WHERE id=%s", (sound_db_id,))
@@ -370,8 +386,7 @@ def approve_sound_v2(sound_db_id):
             c.execute("UPDATE sounds SET status='approved', state='approved' WHERE id=%s", (sound_db_id,))
         conn.commit()
 
-    result = ingestion_service.ingest_sound(db, row["song_id"], row["id"], row["sound_id"], max_results=35)
-    return jsonify({"ok": True, "sound_id": sound_db_id, "posts_added": result.get("posts_added", 0)})
+    return jsonify({"ok": True, "sound_id": sound_db_id, "posts_pending_next_refresh": True})
 
 
 @songs_bp.route("/api/sounds/<int:sound_db_id>/reject_v2", methods=["POST"])
