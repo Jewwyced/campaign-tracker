@@ -472,6 +472,30 @@ def refresh_song(song_id):
     return jsonify({"ok": True, **result})
 
 
+@songs_bp.route("/api/songs/<int:song_id>/recompute_growth", methods=["POST"])
+def recompute_growth(song_id):
+    """One-time (or repeatable) backfill: re-derive 24h/7d growth for every
+    approved sound of this song from EXISTING song_stats history, with no
+    TikAPI/TikLiveAPI call and no quota cost. Needed after the growth-calc
+    rewrite (posts-sample-count -> real video-count diffing) — the daily
+    snapshots were already being recorded correctly all along, they just
+    weren't being read back correctly, so most sounds already have real
+    history to recompute from immediately, rather than waiting for each
+    one's turn in the normal (API-costing) refresh rotation."""
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT id FROM songs WHERE id=%s", (song_id,))
+            if not c.fetchone():
+                return jsonify({"error": "Song not found"}), 404
+            c.execute("SELECT id FROM sounds WHERE song_id=%s AND status='approved'", (song_id,))
+            sound_ids = [r["id"] for r in c.fetchall()]
+
+    for sound_id in sound_ids:
+        ingestion.recompute_sound_growth(db, sound_id)
+
+    return jsonify({"ok": True, "recomputed": len(sound_ids)})
+
+
 @songs_bp.route("/api/songs/<int:song_id>/find_new_sounds", methods=["POST"])
 def find_new_sounds(song_id):
     """Explicit, user-triggered discovery — expands a song's canonical

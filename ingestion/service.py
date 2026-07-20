@@ -251,6 +251,20 @@ def _update_sound_velocity(db_conn_factory, sound_db_id):
     return velocity
 
 
+def recompute_sound_growth(db_conn_factory, sound_db_id):
+    """Public entry point for re-running the 24h/7d growth calc against a
+    sound's EXISTING song_stats history — no TikAPI/TikLiveAPI call, no
+    quota cost. Useful as a one-time backfill after a fix to the growth
+    math itself (like the posts-count -> video-count-diff rewrite this
+    accompanies): the daily snapshots were already being written correctly
+    all along, they just weren't being read back correctly, so most sounds
+    have plenty of real history sitting in song_stats already — this just
+    re-derives posts_24h/posts_7d/velocity from what's already there,
+    without waiting for each sound's turn in the normal refresh rotation.
+    """
+    return _update_sound_velocity(db_conn_factory, sound_db_id)
+
+
 def _is_plausible_candidate(title, author, song_name, song_artist, discovered_via):
     """Discovery-time filter, deliberately kept SEPARATE from
     _could_possibly_qualify (used by qualify's bulk pre-filter), even

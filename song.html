@@ -269,6 +269,7 @@
     </div>
     <div class="header-actions">
       <button id="find-new-btn" class="btn-secondary" onclick="findNewSounds()">🔍 Find New Sounds</button>
+      <button id="recompute-btn" class="btn-secondary" onclick="recomputeGrowth()" title="Recalculates 24h/7d growth for every sound from existing history — no API cost">📊 Recalculate Growth</button>
       <button id="refresh-btn" class="btn-secondary" onclick="refreshSong()">↻ Refresh</button>
     </div>
   </div>
@@ -739,6 +740,30 @@ async function findNewSounds() {
     btn.textContent = '🔍 Find New Sounds';
     btn.disabled = false;
   }, 2500);
+}
+
+async function recomputeGrowth() {
+  const btn = document.getElementById('recompute-btn');
+  btn.textContent = 'Recalculating...';
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/songs/' + songId + '/recompute_growth', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      btn.textContent = `✓ Recalculated ${data.recomputed}`;
+      setTimeout(function() {
+        btn.textContent = '📊 Recalculate Growth';
+        btn.disabled = false;
+      }, 2500);
+      await load();
+    } else {
+      btn.textContent = '📊 Recalculate Growth';
+      btn.disabled = false;
+    }
+  } catch (e) {
+    btn.textContent = '📊 Recalculate Growth';
+    btn.disabled = false;
+  }
 }
 
 async function refreshSong() {

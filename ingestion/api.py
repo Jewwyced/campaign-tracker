@@ -20,6 +20,7 @@ from .service import (
     ingest_fan_account,
     ingest_single_post,
     ingest_campaign_attached_sound,
+    recompute_sound_growth as _recompute_sound_growth,
     get_sound_info as _get_sound_info_from_service,
 )
 from .providers import default_provider as _provider
@@ -75,6 +76,14 @@ def ingest_song_sounds(db, song_id, title, artist=""):
 def refresh_all_song_sounds(db, song_id):
     """Re-ingest every known Sound for a Song. Used by the hourly cron."""
     return refresh_song_sounds(db, song_id)
+
+def recompute_sound_growth(db, sound_db_id):
+    """Re-derive a sound's 24h/7d growth from its EXISTING song_stats
+    history — pure DB read+write, no API call/quota cost. Use this to
+    backfill growth numbers for many sounds at once without waiting for
+    each one's turn in the normal refresh rotation."""
+    return _recompute_sound_growth(db, sound_db_id)
+
 
 def ingest_account(db, username, account_type="roster"):
     """Pull current stats for a tracked TikTok account."""
