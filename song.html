@@ -337,10 +337,10 @@
 
 <script>
 const songId = window.location.pathname.split('/').pop();
-let allPosts = [];
 let currentFilter = 'popular';
 let pageSize = 20;
 let currentPage = 1;
+let postsRequestSeq = 0; // guards against a slow earlier request overwriting a newer one
 
 function fmt(n) {
   if (n == null || isNaN(n)) return '0';
@@ -380,60 +380,62 @@ function setFilter(filter) {
   ['popular','recent','week','today'].forEach(f => {
     document.getElementById(`f-${f}`).className = 'filter-btn' + (f === filter ? ' active' : '');
   });
-  renderPostsGrid();
+  fetchAndRenderPosts();
 }
 
 function setPageSize(val) {
   pageSize = parseInt(val) || 20;
   currentPage = 1;
-  renderPostsGrid();
+  fetchAndRenderPosts();
 }
 
 function changePage(delta) {
   currentPage += delta;
-  renderPostsGrid();
+  fetchAndRenderPosts();
   document.querySelector('.section-row').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function renderPostsGrid() {
+async function fetchAndRenderPosts() {
   const grid = document.getElementById('posts-grid');
   const pagerBar = document.getElementById('pager-bar');
-  if (!allPosts.length) {
-    grid.innerHTML = '<div class="empty">No posts yet. Posts will appear after the next refresh.</div>';
-    pagerBar.style.display = 'none';
+  const seq = ++postsRequestSeq;
+  grid.innerHTML = '<div class="loading">Loading posts...</div>';
+  pagerBar.style.display = 'none';
+
+  let data;
+  try {
+    const res = await fetch(`/api/songs/${songId}/posts?filter=${currentFilter}&page=${currentPage}&page_size=${pageSize}`);
+    data = res.ok ? await res.json() : null;
+  } catch (e) {
+    data = null;
+  }
+  if (seq !== postsRequestSeq) return; // a newer request already superseded this one
+
+  if (!data || !data.posts) {
+    grid.innerHTML = '<div class="empty">Could not load posts. Try again in a moment.</div>';
+    return;
+  }
+  if (!data.posts.length) {
+    grid.innerHTML = data.total === 0 && currentFilter !== 'popular'
+      ? '<div class="no-results"><strong>No posts found</strong>Try a different time period.</div>'
+      : '<div class="empty">No posts yet. Posts will appear after the next refresh.</div>';
     return;
   }
 
-  let posts = [...allPosts];
-  if (currentFilter === 'today') {
-    const cutoff = Date.now()/1000 - (48 * 3600);
-    posts = posts.filter(function(p) { return parseInt(p.created_at) >= cutoff; });
-  } else if (currentFilter === 'week') {
-    const cutoff = (Date.now() / 1000) - (7 * 86400);
-    posts = posts.filter(function(p) {
-      return parseInt(p.created_at) >= cutoff;
-    });
-  }
+  renderPostsGrid(data.posts);
 
-  if (['recent','today','week'].includes(currentFilter)) {
-    posts.sort((a,b) => (parseInt(b.created_at)||0) - (parseInt(a.created_at)||0));
-  } else {
-    posts.sort((a,b) => (parseInt(b.views)||0) - (parseInt(a.views)||0));
-  }
+  // Pager bar
+  const start = (data.page - 1) * data.page_size;
+  pagerBar.style.display = 'flex';
+  document.getElementById('pager-count').textContent =
+    `${start + 1}–${Math.min(start + data.page_size, data.total)} of ${fmt(data.total)} posts`;
+  document.getElementById('pager-page').textContent = `Page ${data.page} of ${data.total_pages}`;
+  document.getElementById('pager-prev').disabled = data.page <= 1;
+  document.getElementById('pager-next').disabled = data.page >= data.total_pages;
+}
 
-  if (!posts.length) {
-    grid.innerHTML = '<div class="no-results"><strong>No posts found</strong>Try a different time period.</div>';
-    pagerBar.style.display = 'none';
-    return;
-  }
-
-  // Pagination over the full filtered/sorted set
-  const totalPages = Math.max(1, Math.ceil(posts.length / pageSize));
-  if (currentPage > totalPages) currentPage = totalPages;
-  if (currentPage < 1) currentPage = 1;
-  const start = (currentPage - 1) * pageSize;
-  const pagePosts = posts.slice(start, start + pageSize);
-
+function renderPostsGrid(pagePosts) {
+  const grid = document.getElementById('posts-grid');
   grid.innerHTML = pagePosts.map(p => `
     <a class="post-card" href="https://tiktok.com/@${escapeHtml(p.username)}/video/${escapeHtml(p.post_id)}" target="_blank">
       <div class="post-thumb-wrap">
@@ -454,14 +456,6 @@ function renderPostsGrid() {
       </div>
     </a>
   `).join('');
-
-  // Pager bar
-  pagerBar.style.display = 'flex';
-  document.getElementById('pager-count').textContent =
-    `${start + 1}–${Math.min(start + pageSize, posts.length)} of ${fmt(posts.length)} posts`;
-  document.getElementById('pager-page').textContent = `Page ${currentPage} of ${totalPages}`;
-  document.getElementById('pager-prev').disabled = currentPage <= 1;
-  document.getElementById('pager-next').disabled = currentPage >= totalPages;
 }
 
 async function load() {
@@ -479,9 +473,9 @@ async function load() {
   document.getElementById('stat-creators').textContent = data.header_stats?.creator_count || 0;
   document.getElementById('stat-posts').textContent = data.header_stats?.post_count || 0;
 
-  allPosts = data.top_posts || [];
+  const topPostsForCreators = data.top_posts || [];
   currentPage = 1;
-  renderPostsGrid();
+  fetchAndRenderPosts();
 
   fetch('/api/songs/' + songId + '/insight')
     .then(function(r) { return r.json(); })
@@ -493,7 +487,7 @@ async function load() {
     })
     .catch(function() {});
   renderSoundsPanel(sounds);
-  renderCreatorsPanel(allPosts);
+  renderCreatorsPanel(topPostsForCreators);
   loadPendingReview();
 }
 

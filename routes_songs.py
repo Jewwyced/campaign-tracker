@@ -24,12 +24,15 @@ songs_bp = Blueprint("songs", __name__)
 # and safe, rather than one call trying to force-refresh everything at once.
 SONG_REFRESH_BATCH_SIZE = 15
 
-# How many of a song's posts /api/songs/<id>/detail returns for the video
-# statistics grid. Bumped way up from the old ~40-post cap so the frontend
-# actually has enough posts to paginate/sort/filter through client-side (see
-# note in song_detail below). 300 is generous headroom without being an
-# unbounded query — a song with fewer posts than this just returns all of them.
-TOP_POSTS_LIMIT = 300
+# How many of a song's posts /api/songs/<id>/detail embeds for the Creators
+# panel rollup (which sums views per creator to rank top 20). The main Posts
+# grid no longer reads from here — it calls /api/songs/<id>/posts directly,
+# which queries+paginates the full posts table server-side per filter (see
+# that route for why: this views-DESC sample structurally excludes recent
+# posts, so it's wrong for anything time-window-based). 150 is plenty for a
+# views-based creator rollup, which is naturally dominated by top-viewed
+# posts anyway.
+TOP_POSTS_LIMIT = 150
 
 
 @songs_bp.route("/api/songs", methods=["GET", "POST"])
@@ -374,20 +377,76 @@ def pending_review(song_id):
 
 @songs_bp.route("/api/songs/<int:song_id>/posts")
 def song_posts(song_id):
+    """Server-side filtered/sorted/paginated posts for a song's video
+    statistics grid.
+
+    IMPORTANT: this replaces a views-DESC-LIMIT-100 (and, before that, a
+    views-DESC-LIMIT-300) query that the frontend then filtered/sorted
+    CLIENT-SIDE for "Most Recent" / "This Week" / "48h". That was broken by
+    construction: a song with thousands of posts has its top-N-by-views
+    list dominated by old posts that have had months to accumulate views —
+    a post from the last 48h essentially never has enough views yet to make
+    a top-300 cut, so it never even reached the frontend. The "48h" filter
+    was therefore filtering *within* an already-views-biased subset that
+    structurally excluded almost everything recent, showing "No posts
+    found" even when thousands of genuinely recent posts existed in the
+    database. This queries the full table directly per filter instead, so
+    each time window is actually correct regardless of how large `posts`
+    gets.
+    """
+    filter_ = request.args.get("filter", "popular")
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except ValueError:
+        page = 1
+    try:
+        page_size = int(request.args.get("page_size", 20))
+    except ValueError:
+        page_size = 20
+    page_size = max(1, min(page_size, 200))  # sane ceiling regardless of what's requested
+
+    where_extra = ""
+    params = [song_id]
+    if filter_ == "today":
+        where_extra = "AND p.created_at >= extract(epoch from now() - interval '48 hours')"
+    elif filter_ == "week":
+        where_extra = "AND p.created_at >= extract(epoch from now() - interval '7 days')"
+
+    order_by = "p.created_at DESC NULLS LAST" if filter_ in ("recent", "today", "week") else "p.views DESC NULLS LAST"
+
     with db() as conn:
         with conn.cursor() as c:
-            c.execute("""
-                SELECT p.* FROM posts p
+            c.execute(f"""
+                SELECT COUNT(*) as total
+                FROM posts p
                 JOIN sounds s ON s.id = p.sound_db_id
-                WHERE s.song_id = %s
-                ORDER BY p.views DESC
-                LIMIT 100
-            """, (song_id,))
+                WHERE s.song_id = %s AND s.status = 'approved' {where_extra}
+            """, params)
+            total = c.fetchone()["total"]
+
+            c.execute(f"""
+                SELECT p.post_id, p.username, p.views, p.likes, p.comments,
+                       p.saves, p.shares, p.thumbnail, p.description,
+                       p.created_at, p.date
+                FROM posts p
+                JOIN sounds s ON s.id = p.sound_db_id
+                WHERE s.song_id = %s AND s.status = 'approved' {where_extra}
+                ORDER BY {order_by}
+                LIMIT %s OFFSET %s
+            """, params + [page_size, (page - 1) * page_size])
             posts = [dict(r) for r in c.fetchall()]
+
     for p in posts:
         p["date"] = str(p["date"]) if p["date"] else None
         p["created_at"] = str(p["created_at"]) if p["created_at"] else None
-    return jsonify(posts)
+
+    return jsonify({
+        "posts": posts,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": max(1, -(-total // page_size)),  # ceiling division
+    })
 
 
 @songs_bp.route("/api/songs/<int:song_id>/refresh", methods=["POST"])
