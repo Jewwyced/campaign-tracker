@@ -285,7 +285,7 @@
       <div class="label">Creators <span class="chevron" id="chev-creators">↓</span></div>
       <div class="value" id="stat-creators">—</div>
     </div>
-    <div class="stat-box"><div class="label">Total Videos (All Sounds)</div><div class="value" id="stat-posts">—</div><div class="sub">TikTok-reported, all videos</div></div>
+    <div class="stat-box"><div class="label">Total Videos (All Sounds)</div><div class="value" id="stat-posts">—</div><div class="sub" id="stat-posts-sub">TikTok-reported, all videos</div></div>
     <div class="stat-box stat-clickable" onclick="togglePanel('pending-panel')" id="box-pending">
       <div class="label">Pending Review <span class="chevron" id="chev-pending">↓</span></div>
       <div class="value" id="stat-pending">—</div>
@@ -304,6 +304,7 @@
           <th class="num" id="th-24h" onclick="setSoundSort('posts_24h')">24 Hours</th>
           <th class="num" id="th-7d" onclick="setSoundSort('posts_7d')">Last 7 Days</th>
           <th class="num" id="th-total" onclick="setSoundSort('current_video_count')">Total</th>
+          <th class="num" title="How many of this sound's real videos we've actually collected into our own database">Coverage</th>
           <th></th>
         </tr>
       </thead>
@@ -505,7 +506,11 @@ async function load() {
   // own posts table (which is a much smaller curated sample used for the
   // grid/creators panel, not TikTok's real per-sound totals).
   const totalVideosAcrossSounds = sounds.reduce((sum, s) => sum + (parseInt(s.current_video_count) || 0), 0);
+  const totalPostsCollectedAcrossSounds = sounds.reduce((sum, s) => sum + (parseInt(s.posts_collected) || 0), 0);
   document.getElementById('stat-posts').textContent = fmt(totalVideosAcrossSounds);
+  const coveragePct = totalVideosAcrossSounds > 0 ? (totalPostsCollectedAcrossSounds / totalVideosAcrossSounds) * 100 : 0;
+  document.getElementById('stat-posts-sub').textContent =
+    `${fmt(totalPostsCollectedAcrossSounds)} collected (${coveragePct >= 1 ? coveragePct.toFixed(1) : coveragePct.toFixed(2)}% coverage)`;
 
   const topPostsForCreators = data.top_posts || [];
   currentPage = 1;
@@ -588,6 +593,16 @@ function renderSoundsPanel(sounds) {
     const pillText = (vel * 100).toFixed(2) + '%';
     const growth24h = parseInt(s.posts_24h) || 0;
     const growth7d = parseInt(s.posts_7d) || 0;
+    const videoCount = parseInt(s.current_video_count) || 0;
+    const postsCollected = parseInt(s.posts_collected) || 0;
+    const coveragePct = videoCount > 0 ? (postsCollected / videoCount) * 100 : 0;
+    // Small sounds (Tier C, <=50 videos) can realistically approach 100%
+    // coverage; large ones structurally cannot (see determine_coverage_plan —
+    // TikTok's API has no sort-by-views and a real pagination ceiling), so
+    // thresholds are calibrated for "this is about as good as it gets for a
+    // sound this size" rather than an absolute bar.
+    const coverageClass = coveragePct >= 50 ? 'up' : coveragePct >= 5 ? 'flat' : 'down';
+    const coverageText = coveragePct >= 1 ? coveragePct.toFixed(1) + '%' : coveragePct.toFixed(2) + '%';
     return `<tr>
       <td class="sound-rank">${i + 1}</td>
       <td>
@@ -598,6 +613,7 @@ function renderSoundsPanel(sounds) {
       <td class="num">${fmt(growth24h)}</td>
       <td class="num">${fmt(growth7d)}</td>
       <td class="num sound-total">${fmt(s.current_video_count)}</td>
+      <td class="num" title="${fmt(postsCollected)} of ${fmt(videoCount)} real videos collected"><span class="sound-growth-pill ${coverageClass}">${coverageText}</span></td>
       <td class="num"><button class="delete-btn" onclick="event.preventDefault();deleteSound(${s.id})">×</button></td>
     </tr>`;
   }).join('');

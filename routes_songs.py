@@ -112,7 +112,13 @@ def song_detail(song_id):
 
             c.execute("""
                 SELECT id, sound_id, title, author, status, current_video_count,
-                       posts_24h, posts_7d, velocity
+                       posts_24h, posts_7d, velocity,
+                       -- How many of this sound's posts we've actually
+                       -- collected into our own posts table — the numerator
+                       -- for a real "coverage %" (collected / current_video_count).
+                       -- Scalar subquery so it isn't affected by anything
+                       -- else joined against sounds elsewhere on this page.
+                       (SELECT COUNT(*) FROM posts p WHERE p.sound_db_id = sounds.id) as posts_collected
                 FROM sounds WHERE song_id=%s AND status='approved'
                 ORDER BY velocity DESC NULLS LAST, current_video_count DESC NULLS LAST
             """, (song_id,))
