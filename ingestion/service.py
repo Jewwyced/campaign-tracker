@@ -48,8 +48,16 @@ COVERAGE_TIER_B_VIDEO_THRESHOLD = 50        # video_count above this -> Tier B, 
                                              # Tier A's 10,000 threshold is left as-is for now —
                                              # no real evidence yet on what a genuinely viral approved
                                              # sound looks like in this dataset to recalibrate it.
-COVERAGE_TIER_A_TARGET_POSTS = 300
-COVERAGE_TIER_B_TARGET_POSTS = 100
+COVERAGE_TIER_A_TARGET_POSTS = 1500  # RAISED 7/20 from 300 — now safe because ingestion runs on
+COVERAGE_TIER_B_TARGET_POSTS = 400   # RAISED 7/20 from 100 — a separate worker service (see
+                                      # HANDOFF), not the main UI. This is the real fix for
+                                      # "we approved big sounds but only ended up tracking a
+                                      # few hundred of their real posts" — real production
+                                      # scale, not a demo-sized sample. Real cost: Tier A now
+                                      # means up to ~100 real /music-posts/ pages per sound
+                                      # (1500 * 2 fetch_multiplier / 30 per page) — genuinely
+                                      # substantial time and API calls per big sound, only
+                                      # safe now that it can't freeze the live site.
 COVERAGE_TIER_C_TARGET_POSTS = 30          # matches original pre-Coverage-Engine behavior
 COVERAGE_TIER_A_FETCH_MULTIPLIER = 2       # paginate to 2x target before ranking/trimming
 COVERAGE_TIER_B_FETCH_MULTIPLIER = 2
@@ -2418,7 +2426,11 @@ def refresh_approved_sounds_for_song(db_conn_factory, song_id, batch_size=15):
     ingested = 0
     import time as _time
     start = _time.monotonic()
-    TIME_BUDGET_SECONDS = 40  # see note above — count alone no longer bounds worst-case time
+    TIME_BUDGET_SECONDS = 250  # RAISED 7/20 from 40 — safe now that this only ever runs on the
+                                # separate worker service (see HANDOFF), never the main UI. Tier A
+                                # sounds now genuinely take much longer to fetch their real 1500-post
+                                # target (~100 pages) — 40s was nowhere near enough for even one big
+                                # sound. Kept under the 300s gunicorn --timeout with real margin.
     for s in sounds:
         if _time.monotonic() - start > TIME_BUDGET_SECONDS:
             _log(f"refresh_approved_sounds_for_song: time budget reached after {ingested}/{len(sounds)}")
