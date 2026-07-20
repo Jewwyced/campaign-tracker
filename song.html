@@ -649,6 +649,28 @@ function _removePendingRowOptimistically(soundDbId) {
   }, 210);
 }
 
+function _showActionError(message) {
+  // A real, visible failure indicator — previously a failed approve/reject
+  // just silently reloaded the list with zero feedback, meaning a failed
+  // click and a successful one looked identical unless you checked the
+  // database by hand. Confirmed real 7/19: a genuine silent failure on
+  // an approve click left a sound un-approved with no indication anything
+  // went wrong.
+  let toast = document.getElementById('action-error-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'action-error-toast';
+    toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);' +
+      'background:#dc2626;color:white;padding:12px 20px;border-radius:8px;' +
+      'font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.2);';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.style.display = 'block';
+  clearTimeout(toast._hideTimer);
+  toast._hideTimer = setTimeout(() => { toast.style.display = 'none'; }, 5000);
+}
+
 async function approvePending(soundDbId) {
   _removePendingRowOptimistically(soundDbId);
   try {
@@ -662,7 +684,9 @@ async function approvePending(soundDbId) {
     refreshSoundsAndStatsOnly();
   } catch (e) {
     // Revert: reload the real pending list from the server so the row
-    // comes back if the approve actually failed server-side.
+    // comes back if the approve actually failed server-side — AND now
+    // tell you clearly that it failed, instead of silently.
+    _showActionError('⚠ Approve failed — the sound was NOT approved. Try again.');
     loadPendingReview();
   }
 }
@@ -673,6 +697,7 @@ async function rejectPending(soundDbId) {
     const res = await fetch(`/api/sounds/${soundDbId}/reject_v2`, { method: 'POST' });
     if (!res.ok) throw new Error('reject failed');
   } catch (e) {
+    _showActionError('⚠ Reject failed — the sound was NOT rejected. Try again.');
     loadPendingReview();
   }
 }
@@ -749,17 +774,22 @@ async function findNewSounds() {
 }
 
 async function continueFingerprintingUntilDone(btn, firstPipelineResult) {
-  // If the first pass (inside find_new_sounds_v2) didn't get through
-  // everything discovery found — common with a big batch, since each
-  // pass is time-boxed to ~25s of real audio-fetch + ACRCloud work — keep
-  // calling the fingerprint-only continuation until the backlog for this
-  // song is actually drained, same proven pattern as looping
-  // /api/refresh/process_pipeline manually.
-  const MAX_LOOPS = 15;
+  // REDESIGNED 7/20 — used to try to exhaustively drain the WHOLE batch
+  // on this page (up to 15 loops), which meant genuinely waiting minutes
+  // for a big discovery run (searches now go much deeper, batches of
+  // 100+ are common) — a bad experience, and not even necessary: the
+  // hourly cron already drains the SAME queue automatically in the
+  // background regardless of whether anyone's watching this page.
+  //
+  // New behavior: give a QUICK preview (a few loops, ~1 minute max) so
+  // you see real results right away, then clearly hand off to the
+  // background system instead of implying you need to wait for
+  // everything — you don't, it finishes on its own.
+  const QUICK_PREVIEW_LOOPS = 3;
   let totalChecked = firstPipelineResult.fingerprinted + firstPipelineResult.bulk_rejected;
   let lastPulled = firstPipelineResult.discovered_pulled;
 
-  for (let i = 0; i < MAX_LOOPS && lastPulled >= 40; i++) {
+  for (let i = 0; i < QUICK_PREVIEW_LOOPS && lastPulled >= 40; i++) {
     btn.textContent = `Verifying audio... ${totalChecked} checked so far`;
     let data;
     try {
@@ -775,7 +805,15 @@ async function continueFingerprintingUntilDone(btn, firstPipelineResult) {
     if (data.discovered_pulled === 0) break;
   }
 
-  btn.textContent = `✓ ${totalChecked} verified`;
+  if (lastPulled >= 40) {
+    // There's more than a quick preview can reasonably show — say so
+    // plainly instead of silently stopping, and make clear no action is
+    // needed: the hourly background job picks up exactly where this left
+    // off, automatically, on its own schedule.
+    btn.textContent = `✓ ${totalChecked} verified so far — rest completing automatically in the background`;
+  } else {
+    btn.textContent = `✓ ${totalChecked} verified`;
+  }
   await loadPendingReview();
 }
 
