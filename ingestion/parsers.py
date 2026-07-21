@@ -128,6 +128,51 @@ def parse_posts_from_music_page(raw_music_page_response):
     return posts, has_more, next_cursor
 
 
+def parse_sounds_from_post_feed(raw_feed_response):
+    """Given a normalized post-feed response (itemStruct.itemList, or a bare
+    itemList — both shapes already used elsewhere in this file), extract
+    each post's sound alongside minimal post context.
+
+    Shared by Community Discovery (challenge/hashtag posts) and Creator
+    Graph (account posts) — both need the same underlying thing: which
+    sound did THIS post use, not just its engagement stats. Neither
+    parse_posts_from_music_page (built for pages where the sound is
+    already known and never extracts one) nor parse_posts_from_user_feed
+    (drops the music field entirely, despite get_account_posts already
+    preserving it) currently do this — this is the one function that does,
+    so both discovery engines produce identically-shaped sound candidates
+    without duplicating extraction logic between them.
+
+    Posts with no usable music data are skipped, not included as None
+    entries — a post can genuinely have no sound (rare, but the API
+    doesn't guarantee one), and callers tallying sound frequency across a
+    feed shouldn't have to filter Nones out themselves.
+    """
+    if not raw_feed_response:
+        return []
+
+    item_struct = raw_feed_response.get("itemStruct", raw_feed_response)
+    items = item_struct.get("itemList", [])
+
+    results = []
+    for item in items:
+        music = item.get("music", {})
+        sound_id = music.get("id")
+        if not sound_id:
+            continue
+        author = item.get("author", {})
+        s = item.get("stats", {})
+        results.append({
+            "sound_id": str(sound_id),
+            "sound_title": music.get("title", "Unknown sound"),
+            "sound_author": music.get("authorName", ""),
+            "post_id": item.get("id"),
+            "username": author.get("uniqueId", ""),
+            "views": s.get("playCount", 0),
+        })
+    return results
+
+
 def parse_account_stats(raw_check_response):
     """Given raw JSON from a user/check endpoint, return normalized account stats.
     Returns None if the response is missing or malformed."""
