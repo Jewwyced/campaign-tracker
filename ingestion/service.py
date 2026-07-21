@@ -18,6 +18,7 @@ from .providers import default_provider as provider
 from .tiklive_provider import TikLiveAPIProvider as _TikLiveProvider
 _tiklive = _TikLiveProvider()
 from . import fingerprint as _fingerprint
+from services import ai_service as _ai_service
 from .parsers import (
     parse_sounds_from_search,
     parse_sound_info,
@@ -1778,7 +1779,152 @@ def ingest_campaign_attached_sound(db_conn_factory, campaign_id, tiktok_sound_id
                 added += 1
         conn.commit()
     return added
-# ── New: consolidated per-song pipeline (discover -> qualify -> ingest posts) ──
+
+
+# ── Community Discovery — second discovery sensor ─────────────────────────
+# Validated via real experiment (4 hashtags: slowedreverb, nightcore, spedup,
+# phonk — ~300 posts sampled each) before being wired in here. Findings that
+# shaped this implementation:
+#   - Title/artist search structurally misses this content: derivative-audio
+#     edits routinely get uploaded under an unrelated "original sound -
+#     randomuser" name with zero textual connection to the real song.
+#   - Frequency is NOT a useful ranking signal here — ~98% of sounds in
+#     every hashtag tested appeared exactly once, so "which sound repeats
+#     most" barely discriminates at all.
+#   - Engagement (views/likes/comments/shares) DOES work — consistently
+#     surfaced real, coherent, identifiable songs at the top across all 4
+#     hashtags tested, unlike frequency.
+#   - Some accounts post many DISTINCT sounds within one hashtag (hub
+#     accounts) — worth noting for a future sensor, but this function does
+#     NOT persist a hub-accounts table yet, per the "ship the simple
+#     version this week" call — that becomes valuable once this sensor is
+#     actually running, not before.
+#
+# Architecture: this is ONE independent sensor among several (title
+# search, this, eventually creator graph / other sensors). It does ONLY
+# ONE job — produce candidate `sounds` rows — using the exact same
+# get_or_create_sound() storage path and discovered_via/discovery_query
+# Discovery Memory fields discover_song_sounds already uses. It never
+# calls fingerprinting itself and never auto-approves anything: every
+# candidate lands in the same 'pending' queue and gets picked up by the
+# existing fingerprint backlog worker exactly like a title-search
+# candidate would, regardless of which sensor found it.
+COMMUNITY_DISCOVERY_HASHTAGS = ["slowedreverb", "nightcore", "spedup", "phonk"]
+COMMUNITY_DISCOVERY_MAX_PAGES = 20       # ~300-360 posts/hashtag at count=35/page — the exact scale validated
+COMMUNITY_DISCOVERY_MAX_CANDIDATES_PER_HASHTAG = 15  # top-by-engagement only; NOT every unique sound found
+
+
+def _adapt_challenge_video(v):
+    """Normalizes one raw TikLive challenge-post video into the
+    itemStruct-item shape parse_sounds_from_post_feed expects. Same
+    adapter validated in the diagnostic experiment — kept local to this
+    module rather than changing tiklive_provider.py's get_challenge_posts
+    return shape, since that's a larger interface-standardization change
+    deliberately deferred until after this sensor proves itself in
+    production (see conversation/handoff notes)."""
+    music_info = v.get("music_info") or {}
+    author = v.get("author", {}) if isinstance(v.get("author"), dict) else {}
+    return {
+        "id": v.get("video_id"),
+        "desc": (v.get("title") or "")[:300],
+        "createTime": v.get("create_time"),
+        "stats": {
+            "playCount": int(v.get("play_count") or 0),
+            "diggCount": int(v.get("digg_count") or 0),
+            "commentCount": int(v.get("comment_count") or 0),
+            "shareCount": int(v.get("share_count") or 0),
+        },
+        "author": {"uniqueId": author.get("unique_id", "")},
+        "music": {
+            "id": music_info.get("id"),
+            "title": music_info.get("title"),
+            "authorName": music_info.get("author"),
+        },
+    }
+
+
+def _community_engagement_score(e):
+    """First-pass weighting — comments/shares weighted higher than raw
+    views, matching the diagnostic experiment. Not tuned against real
+    fingerprint-match outcomes yet; worth revisiting once there's
+    production data to check it against."""
+    return e["total_views"] + e["total_likes"] * 3 + e["total_comments"] * 5 + e["total_shares"] * 5
+
+
+def discover_community_sounds_for_song(db_conn_factory, song_id, name, artist=""):
+    """Community Discovery sensor — scans a fixed set of derivative-audio
+    genre hashtags for sound candidates, completely independent of
+    whether they textually match this song's title/artist. This is what
+    reaches the blind spot title search structurally cannot (see module
+    notes above). Calls TikLiveAPIProvider directly rather than through
+    BaseProvider/ProviderPipeline — that interface standardization is
+    deliberately deferred to Phase B, after this sensor proves out in
+    production, not before.
+
+    Returns the list of new/touched sound db ids (for logging/reporting
+    only — callers should NOT branch on this beyond counting).
+    """
+    from .tiklive_provider import TikLiveAPIProvider
+    from .parsers import parse_sounds_from_post_feed
+    from collections import defaultdict
+
+    provider = TikLiveAPIProvider()
+    touched_ids = []
+
+    for hashtag in COMMUNITY_DISCOVERY_HASHTAGS:
+        challenges = provider.search_challenge(hashtag)
+        if not challenges:
+            _log(f"community discovery: no challenge found for #{hashtag}, skipping")
+            continue
+
+        exact = next((c for c in challenges if c.get("cha_name", "").lower() == hashtag.lower()), None)
+        chosen = exact or challenges[0]
+        challenge_id = chosen.get("id")
+
+        sound_tally = defaultdict(lambda: {"title": None, "author": None,
+                                            "total_views": 0, "total_likes": 0,
+                                            "total_comments": 0, "total_shares": 0})
+        cursor = 0
+        for _page in range(COMMUNITY_DISCOVERY_MAX_PAGES):
+            videos, has_more, next_cursor = provider.get_challenge_posts(challenge_id, cursor=cursor, count=35)
+            if not videos:
+                break
+
+            adapted = [_adapt_challenge_video(v) for v in videos]
+            feed = {"itemStruct": {"itemList": adapted}}
+            for s in parse_sounds_from_post_feed(feed):
+                entry = sound_tally[s["sound_id"]]
+                entry["title"] = s["sound_title"]
+                entry["author"] = s["sound_author"]
+                entry["total_views"] += s["views"]
+                entry["total_likes"] += s["likes"]
+                entry["total_comments"] += s["comments"]
+                entry["total_shares"] += s["shares"]
+
+            if not has_more:
+                break
+            cursor = next_cursor
+
+        ranked = sorted(sound_tally.items(), key=lambda kv: _community_engagement_score(kv[1]), reverse=True)
+        top = ranked[:COMMUNITY_DISCOVERY_MAX_CANDIDATES_PER_HASHTAG]
+
+        for sound_id, e in top:
+            sound_db_id = get_or_create_sound(db_conn_factory, song_id, {
+                "sound_id": sound_id,
+                "title": e["title"],
+                "author": e["author"],
+                "discovered_via": "community_hashtag",
+                "discovery_query": f"#{hashtag}",
+                "discovery_sort_by": "engagement",
+            })
+            if sound_db_id:
+                touched_ids.append(sound_db_id)
+
+        _log(f"community discovery #{hashtag}: {len(sound_tally)} unique sounds seen, "
+             f"top {len(top)} persisted as pending candidates")
+
+    return touched_ids
+
 
 def qualify_pending_sounds_for_song(db_conn_factory, song_id, auto_approve=True):
     """Check up to QUALIFY_BATCH_SIZE pending sounds for one song — ranked
@@ -2143,7 +2289,146 @@ def _compute_recommendation(fingerprint_status, fingerprint_confidence):
     return "review"  # inconclusive or error — no confident automatic answer
 
 
-def process_sound_pipeline(db_conn_factory, batch_size=40, time_budget_seconds=25, song_id=None):
+def run_ai_review_backlog(db_conn_factory, batch_size=15, time_budget_seconds=25, song_id=None):
+    """The AI sound-review worker — the 'final stamp' after fingerprinting,
+    run specifically on candidates fingerprinting already checked and did
+    NOT confirm as a match to the master recording (fingerprint_status
+    'mismatched' or 'inconclusive'). That is NOT the same as "definitely
+    unrelated" — it just means there's no official recording to match
+    against, which is exactly and only true of remixes, reposts, and
+    derivative/background-audio use. Those are the candidates a human
+    currently has to eyeball one at a time in the pending review queue;
+    this looks at the same sample video thumbnails a human would and
+    renders the same kind of judgment, with reasoning attached.
+
+    Mirrors run_fingerprint_backlog's shape deliberately: same song_id
+    scoping (None = global FIFO queue for the cron; a song_id = "verify
+    what I just discovered on this song, on demand"), same time-boxing
+    (vision calls + a thumbnail-fetch round trip per candidate have
+    unpredictable latency, same reasoning as the fingerprint worker).
+
+    NEVER touches sounds.status — writes only to ai_review_* columns,
+    same "verification layer, not a lifecycle transition" boundary the
+    fingerprint worker holds. Auto-approve/reject based on this is a
+    deliberate FUTURE decision once accuracy is proven out over time —
+    today this only informs the human reviewer, it doesn't act on its
+    own recommendation.
+    """
+    import time as _time
+    start = _time.monotonic()
+
+    song_filter_sql = "AND snd.song_id = %s" if song_id is not None else ""
+    query_params = ([song_id] if song_id is not None else []) + [batch_size]
+
+    with db_conn_factory() as conn:
+        with conn.cursor() as c:
+            c.execute(f"""
+                SELECT snd.id, snd.sound_id, snd.title, snd.author, snd.discovered_via,
+                       sg.name AS song_name, sg.artist AS song_artist
+                FROM sounds snd
+                JOIN songs sg ON sg.id = snd.song_id
+                WHERE snd.status = 'pending'
+                  AND snd.fingerprint_status IN ('mismatched', 'inconclusive')
+                  AND snd.ai_review_status = 'unchecked'
+                  {song_filter_sql}
+                  AND snd.song_id IN (
+                      SELECT cs.song_id FROM campaign_songs cs
+                      JOIN campaigns camp ON camp.id = cs.campaign_id
+                      WHERE camp.status = 'In Progress'
+                  )
+                ORDER BY snd.id ASC
+                LIMIT %s
+            """, query_params)
+            batch = [dict(r) for r in c.fetchall()]
+
+    _log(f"run_ai_review_backlog: {len(batch)} candidates pulled (batch_size={batch_size})")
+
+    checked = approved = rejected = needs_human = errors = 0
+
+    for s in batch:
+        if _time.monotonic() - start > time_budget_seconds:
+            _log(f"run_ai_review_backlog: time budget ({time_budget_seconds}s) reached, "
+                 f"stopping early after {checked}/{len(batch)}")
+            break
+
+        try:
+            raw = provider.get_sound_posts_page(s["sound_id"], cursor=0, count=6)
+            posts, _, _ = parse_posts_from_music_page(raw)
+            sample_posts = [
+                {
+                    "username": p.get("username"),
+                    "thumbnail": p.get("thumbnail"),
+                    "description": p.get("description"),
+                    "views": p.get("views", 0),
+                }
+                for p in posts[:5] if p.get("thumbnail")
+            ]
+
+            result = _ai_service.review_sound_candidate(
+                s["song_name"], s["song_artist"], s["title"], s["author"],
+                s.get("discovered_via"), sample_posts
+            )
+
+            if result is None:
+                with db_conn_factory() as conn:
+                    with conn.cursor() as c:
+                        c.execute("""
+                            UPDATE sounds SET ai_review_status='error', ai_review_checked_at=now()
+                            WHERE id=%s
+                        """, (s["id"],))
+                    conn.commit()
+                errors += 1
+                continue
+
+            with db_conn_factory() as conn:
+                with conn.cursor() as c:
+                    c.execute("""
+                        UPDATE sounds
+                        SET ai_review_status='reviewed',
+                            ai_review_confidence=%s,
+                            ai_review_recommendation=%s,
+                            ai_review_reasoning=%s,
+                            ai_review_checked_at=now()
+                        WHERE id=%s
+                    """, (
+                        result["confidence"], result["recommendation"],
+                        result["reasoning"], s["id"],
+                    ))
+                conn.commit()
+
+            checked += 1
+            if result["recommendation"] == "approve":
+                approved += 1
+            elif result["recommendation"] == "reject":
+                rejected += 1
+            else:
+                needs_human += 1
+
+        except Exception as e:
+            _log(f"run_ai_review_backlog: failed on sound {s['id']}: {e}")
+            with db_conn_factory() as conn:
+                with conn.cursor() as c:
+                    c.execute("""
+                        UPDATE sounds SET ai_review_status='error', ai_review_checked_at=now()
+                        WHERE id=%s
+                    """, (s["id"],))
+                conn.commit()
+            errors += 1
+
+    _log(f"run_ai_review_backlog: {checked} checked — {approved} approve, "
+         f"{rejected} reject, {needs_human} needs_human, {errors} errors")
+
+    return {
+        "pulled": len(batch),
+        "checked": checked,
+        "approved": approved,
+        "rejected": rejected,
+        "needs_human": needs_human,
+        "errors": errors,
+    }
+
+
+
     """THE state machine worker (state machine migration, step 4 — see
     HANDOFF_state_machine_migration.md). One transition, not two:
 
@@ -2420,11 +2705,24 @@ def initialize_song(db_conn_factory, song_id, name, artist=""):
     refresh_approved_sounds_for_song.
     """
     discovered = discover_song_sounds(db_conn_factory, song_id, name, artist or "")
+
+    # Second discovery sensor — see discover_community_sounds_for_song's
+    # module notes for why this exists and what it was validated against.
+    # Deliberately best-effort: a Community Discovery failure (rate limit,
+    # provider outage, etc.) should never block song creation or title
+    # search's results — this is additive, not load-bearing.
+    try:
+        community_discovered = discover_community_sounds_for_song(db_conn_factory, song_id, name, artist or "")
+    except Exception as e:
+        _log(f"initialize_song: community discovery failed, continuing without it: {e}")
+        community_discovered = []
+
     qualify_result = qualify_pending_sounds_for_song(db_conn_factory, song_id, auto_approve=True)
     ingest_result = ingest_approved_sounds_for_song(db_conn_factory, song_id)
 
     return {
         "sounds_discovered": len(discovered),
+        "community_sounds_discovered": len(community_discovered),
         "qualify": qualify_result,
         "ingest": ingest_result,
     }

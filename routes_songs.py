@@ -97,6 +97,34 @@ def songs_collection():
     return jsonify(rows)
 
 
+@songs_bp.route("/api/songs/<int:song_id>/quick_refresh", methods=["POST"])
+def quick_refresh(song_id):
+    """Runs ONCE right after a new song is created — campaign.html has
+    always called this route immediately after POST /api/songs, but it
+    never actually existed until now (confirmed: no route in this file
+    called initialize_song, meaning every newly created song got ZERO
+    initial discovery via any live path — a real, separate bug found
+    while wiring in Community Discovery, not something this route
+    introduces).
+
+    Calls initialize_song, which now runs BOTH discovery sensors (title
+    search + Community Discovery) before qualifying/ingesting — see
+    initialize_song and discover_community_sounds_for_song in
+    ingestion/service.py.
+    """
+    with db() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT name, artist FROM songs WHERE id=%s", (song_id,))
+            row = c.fetchone()
+            if not row:
+                return jsonify({"error": "Song not found"}), 404
+            name = row["name"]
+            artist = row["artist"] or ""
+
+    result = ingestion.initialize_song(db, song_id, name, artist)
+    return jsonify({"ok": True, "song_id": song_id, **result})
+
+
 @songs_bp.route("/api/songs/<int:song_id>/detail")
 def song_detail(song_id):
     window = request.args.get("window", "all")

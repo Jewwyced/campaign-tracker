@@ -21,6 +21,8 @@ from .service import (
     ingest_single_post,
     ingest_campaign_attached_sound,
     recompute_sound_growth as _recompute_sound_growth,
+    run_ai_review_backlog as _run_ai_review_backlog,
+    initialize_song as _initialize_song,
     get_sound_info as _get_sound_info_from_service,
 )
 from .providers import default_provider as _provider
@@ -83,6 +85,29 @@ def recompute_sound_growth(db, sound_db_id):
     backfill growth numbers for many sounds at once without waiting for
     each one's turn in the normal refresh rotation."""
     return _recompute_sound_growth(db, sound_db_id)
+
+def run_ai_review_backlog(db, batch_size=15, time_budget_seconds=25, song_id=None):
+    """The AI sound-review 'final stamp' — runs on pending candidates
+    fingerprinting already checked but couldn't confirm as a master-
+    recording match (remixes/reposts/derivative use). Looks at real
+    sample video thumbnails to judge genuine campaign relatedness, the
+    same read a human reviewer does by eye. Informs the pending review
+    queue only — never changes sounds.status on its own."""
+    return _run_ai_review_backlog(db, batch_size=batch_size, time_budget_seconds=time_budget_seconds, song_id=song_id)
+
+def initialize_song(db, song_id, name, artist=""):
+    """Runs ONCE per song, right after creation: title-search discovery +
+    Community Discovery (both independent sensors feeding the same
+    pending queue) -> qualify (auto-approving high-confidence matches,
+    appropriate here since a brand new song starts with zero canonical
+    sounds) -> ingest. This establishes a song's initial sound set.
+
+    IMPORTANT: this had ZERO callers anywhere in the routes layer before
+    this was wired up — campaign.html has always called a
+    /quick_refresh route that never existed, meaning newly created songs
+    got no initial discovery at all via any live path. The new
+    /api/songs/<id>/quick_refresh route is what actually calls this now."""
+    return _initialize_song(db, song_id, name, artist)
 
 
 def ingest_account(db, username, account_type="roster"):
