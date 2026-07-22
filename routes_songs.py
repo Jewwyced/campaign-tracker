@@ -345,7 +345,21 @@ def thumbnail_proxy():
         return jsonify({"error": "Invalid or disallowed URL"}), 400
 
     try:
-        resp = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+        resp = requests.get(
+            url,
+            timeout=10,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                # Some of these signed CDN URLs return non-200 with NO
+                # referer at all (not just a wrong one) — confirmed via
+                # real 502s in production logs on a subset of thumbnails,
+                # inconsistent with a blanket "block all non-tiktok
+                # referers" policy. Sending one that looks like a genuine
+                # TikTok page load fixes the ones that specifically
+                # require SOME referer to be present.
+                "Referer": "https://www.tiktok.com/",
+            },
+        )
         if resp.status_code != 200:
             return jsonify({"error": f"Upstream returned {resp.status_code}"}), 502
         return Response(
