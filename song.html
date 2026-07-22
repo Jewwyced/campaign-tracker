@@ -382,6 +382,16 @@ function escapeHtml(str) {
   div.textContent = str || '';
   return div.innerHTML;
 }
+// TikTok's CDN checks the browser's Referer/Origin header on image
+// requests and silently refuses ones that don't come from tiktok.com —
+// hotlinking p.thumbnail directly rendered as flat gray boxes with no
+// visible error. Routing through our own /api/thumbnail_proxy fixes
+// this: the actual TikTok fetch happens server-side (no browser
+// Referer involved), and the browser loads the image from our domain,
+// which was never blocked.
+function proxiedThumb(url) {
+  return url ? `/api/thumbnail_proxy?url=${encodeURIComponent(url)}` : '';
+}
 function formatDate(ts) {
   if (!ts) return '';
   const d = new Date(parseInt(ts) * 1000);
@@ -467,7 +477,7 @@ function renderPostsGrid(pagePosts) {
   grid.innerHTML = pagePosts.map(p => `
     <a class="post-card" href="https://tiktok.com/@${escapeHtml(p.username)}/video/${escapeHtml(p.post_id)}" target="_blank">
       <div class="post-thumb-wrap">
-        ${p.thumbnail ? `<img class="post-thumb" src="${escapeHtml(p.thumbnail)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">` : ''}
+        ${p.thumbnail ? `<img class="post-thumb" src="${escapeHtml(proxiedThumb(p.thumbnail))}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">` : ''}
         <div class="post-thumb-placeholder" ${p.thumbnail?'style="display:none"':''}>🎵</div>
         <div class="post-overlay">${fmt(p.views)}</div>
         ${p.created_at ? `<div class="post-date-badge">${formatDate(p.created_at)}</div>` : ''}
@@ -707,7 +717,7 @@ async function loadPendingThumbs(soundDbId) {
     }
     el.innerHTML = posts.slice(0, 3).map(p => `
       <a class="pending-thumb" href="https://tiktok.com/@${escapeHtml(p.username)}/video/${escapeHtml(p.post_id)}" target="_blank" title="@${escapeHtml(p.username)}">
-        ${p.thumbnail ? `<img src="${escapeHtml(p.thumbnail)}" loading="lazy">` : ''}
+        ${p.thumbnail ? `<img src="${escapeHtml(proxiedThumb(p.thumbnail))}" loading="lazy" onerror="this.style.display='none'">` : ''}
         <div class="pending-thumb-views">${fmt(p.views)}</div>
       </a>
     `).join('');
@@ -716,27 +726,72 @@ async function loadPendingThumbs(soundDbId) {
   }
 }
 
+function decrementPendingCount() {
+  const el = document.getElementById('stat-pending');
+  const next = Math.max(0, (parseInt(el.textContent) || 0) - 1);
+  el.textContent = next;
+  document.getElementById('box-pending').classList.toggle('has-pending', next > 0);
+}
+
+function restorePendingCard(row, parent, nextSibling) {
+  row.style.opacity = '1';
+  row.style.transform = 'none';
+  row.style.pointerEvents = '';
+  if (nextSibling && nextSibling.parentElement === parent) parent.insertBefore(row, nextSibling);
+  else parent.appendChild(row);
+  const el = document.getElementById('stat-pending');
+  el.textContent = (parseInt(el.textContent) || 0) + 1;
+  document.getElementById('box-pending').classList.add('has-pending');
+  alert('Something went wrong — this card has been restored. Please try again.');
+}
+
 async function approvePending(soundDbId) {
   const row = document.getElementById(`pending-row-${soundDbId}`);
-  const buttons = row ? row.querySelectorAll('button') : [];
-  buttons.forEach(b => b.disabled = true);
+  if (!row) return;
+  const parent = row.parentElement;
+  const nextSibling = row.nextElementSibling;
+
+  // Optimistic UI: approve triggers a real ingest_sound network round trip
+  // server-side (can take a few seconds), and this used to wait for a FULL
+  // page reload (load()) before the card disappeared — every click in a
+  // long queue felt sluggish. Now the card fades out immediately; if the
+  // request actually fails, it's restored exactly where it was rather than
+  // silently vanishing.
+  row.style.pointerEvents = 'none';
+  row.style.transition = 'opacity .15s, transform .15s';
+  row.style.opacity = '0';
+  row.style.transform = 'scale(0.98)';
+  const removeTimer = setTimeout(() => row.remove(), 150);
+  decrementPendingCount();
+
   try {
-    await fetch(`/api/sounds/${soundDbId}/approve`, { method: 'POST' });
-    await load();
+    const res = await fetch(`/api/sounds/${soundDbId}/approve`, { method: 'POST' });
+    if (!res.ok) throw new Error('approve failed');
   } catch (e) {
-    buttons.forEach(b => b.disabled = false);
+    clearTimeout(removeTimer);
+    restorePendingCard(row, parent, nextSibling);
   }
 }
 
 async function rejectPending(soundDbId) {
   const row = document.getElementById(`pending-row-${soundDbId}`);
-  const buttons = row ? row.querySelectorAll('button') : [];
-  buttons.forEach(b => b.disabled = true);
+  if (!row) return;
+  const parent = row.parentElement;
+  const nextSibling = row.nextElementSibling;
+
+  row.style.pointerEvents = 'none';
+  row.style.transition = 'opacity .15s, transform .15s';
+  row.style.opacity = '0';
+  row.style.transform = 'scale(0.98)';
+  const removeTimer = setTimeout(() => row.remove(), 150);
+  decrementPendingCount();
+
   try {
-    await fetch(`/api/sounds/${soundDbId}/reject`, { method: 'POST' });
-    await loadPendingReview();
+    const res = await fetch(`/api/sounds/${soundDbId}/reject`, { method: 'POST' });
+    if (!res.ok) throw new Error('reject failed');
   } catch (e) {
-    buttons.forEach(b => b.disabled = false);
+    clearTimeout(removeTimer);
+    restorePendingCard(row, parent, nextSibling);
   }
 }
 

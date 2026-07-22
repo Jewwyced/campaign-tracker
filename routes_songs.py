@@ -6,9 +6,10 @@ regardless of whether there's an active marketing push behind it. Each Song
 has many Sounds (Original, Sped Up, Remix, etc), each Sound has many Posts.
 """
 
-from flask import Blueprint, jsonify, request, render_template_string
+from flask import Blueprint, jsonify, request, render_template_string, Response
 from ingestion import api as ingestion
 from db import db
+import requests
 
 songs_bp = Blueprint("songs", __name__)
 
@@ -318,6 +319,42 @@ def preview_sound_posts(sound_db_id):
         for p in posts[:6] if p.get("post_id") and p.get("username")
     ]
     return jsonify(preview)
+
+
+@songs_bp.route("/api/thumbnail_proxy")
+def thumbnail_proxy():
+    """Fetches a thumbnail image server-side and streams it back through
+    our own domain, instead of the frontend hotlinking TikTok's CDN URL
+    directly in an <img src>.
+
+    WHY THIS EXISTS: pending-review thumbnails were rendering as flat
+    gray boxes with no visible error — TikTok's CDN checks the browser's
+    Referer/Origin header on image requests and silently refuses ones
+    that don't come from tiktok.com itself, returning nothing usable
+    rather than a loud 403. A server-to-server fetch (this route, running
+    on Render) doesn't send a browser Referer at all, so it isn't subject
+    to that check — the browser then loads the image from OUR domain,
+    which was never blocked in the first place.
+
+    Only proxies tiktokcdn.com-family hosts — deliberately not a generic
+    open proxy for arbitrary URLs (that would let this route be used to
+    fetch/relay anything, a real SSRF-style risk for a public route).
+    """
+    url = request.args.get("url", "")
+    if not url or "tiktokcdn" not in url:
+        return jsonify({"error": "Invalid or disallowed URL"}), 400
+
+    try:
+        resp = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+        if resp.status_code != 200:
+            return jsonify({"error": f"Upstream returned {resp.status_code}"}), 502
+        return Response(
+            resp.content,
+            mimetype=resp.headers.get("Content-Type", "image/jpeg"),
+            headers={"Cache-Control": "public, max-age=3600"},  # thumbnails don't change; safe to cache an hour
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
 
 
 @songs_bp.route("/api/sounds/<int:sound_db_id>", methods=["DELETE"])
