@@ -46,6 +46,7 @@ from .parsers import parse_sound_info, parse_posts_from_music_page
 from . import fingerprint as _fingerprint
 from services import ai_service as _ai_service
 from ._shared import _log, _normalize_str, _score_sound, _artist_signal
+from .discovery import _is_plausible_candidate
 
 # Max number of pending sounds to actually hit the provider for in a single
 # qualify_pending_sounds_for_song() call. A song can easily have 200-400
