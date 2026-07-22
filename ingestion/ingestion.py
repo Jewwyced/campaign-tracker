@@ -30,6 +30,7 @@ from .parsers import (
     parse_single_post,
 )
 from ._shared import _log
+from .growth import _update_sound_velocity
 
 SOUND_FRESHNESS_HOURS = 6
 
